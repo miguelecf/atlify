@@ -1,150 +1,254 @@
 #!/usr/bin/env python3
-"""Une skeleton.json + enrich.json, extrae los fragmentos de código del repo
-y genera un único atlas.html autocontenido (funciona offline).
+"""Genera el visor del atlas: un único HTML offline a partir de atlas.json y del repo.
+
+Valida primero (validate.py), comprime los archivos fuente citados dentro del
+HTML y lo escribe en .atlas/. Con --endpoint deja solo esa ruta y calcula, sobre
+el código real, qué otras rutas y tests pasan por las mismas funciones y tablas.
 
 Uso:
-    python build.py <repo> [--atlas-dir <repo>/.atlas] [-o <repo>/.atlas/atlas.html]
-
-El agente nunca escribe código en enrich.json: da archivo + desde/hasta y este
-script copia las líneas reales, así el atlas no puede inventar código.
+    python build.py <repo> [--atlas <repo>/.atlas/atlas.json] [-o salida.html]
+    python build.py <repo> --endpoint "GET /api/appointments"
 """
 from __future__ import annotations
 
 import argparse
+import ast
+import base64
+import gzip
 import json
+import re
 import sys
+from html import escape
 from pathlib import Path
 
-MAX_LINEAS = 60
-PLANTILLA = Path(__file__).resolve().parent.parent / "assets" / "atlas.html"
-MARCA = "__ATLAS_DATOS__"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from extract import caminar, es_test  # noqa: E402  # pyright: ignore[reportMissingImports]
+from validate import ep_id, informar, mismo_endpoint, rango_simbolo, recorrer_refs, validar  # noqa: E402  # pyright: ignore[reportMissingImports]
+
+ASSETS = Path(__file__).resolve().parent.parent / "assets"
+PLANTILLA = ASSETS / "visor.html"
+VENDOR = ASSETS / "vendor" / "htm-preact-3.1.1.umd.js"
+EXT_CODIGO = {".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".java"}
+# nombres demasiado comunes para buscarlos sin el módulo delante (db.get, list.add…)
+GENERICOS = {"get", "add", "set", "put", "post", "list", "create", "update", "delete", "remove", "save", "find",
+             "run", "main", "init", "load", "fetch", "render", "handle", "query", "send", "close", "open"}
+PROFUNDIDAD = 4
 
 
-def fragmento(repo: Path, archivo: str, desde: int, hasta: int, avisos: list[str], ctx: str) -> dict | None:
-    p = (repo / archivo)
-    if not p.is_file():
-        avisos.append(f"{ctx}: no existe el archivo {archivo}")
-        return None
-    lineas = p.read_text(encoding="utf-8", errors="replace").splitlines()
-    if not (1 <= desde <= len(lineas)):
-        avisos.append(f"{ctx}: línea {desde} fuera de rango en {archivo} ({len(lineas)} líneas)")
-        return None
-    hasta = max(desde, min(hasta or desde, len(lineas)))
-    if hasta - desde + 1 > MAX_LINEAS:
-        avisos.append(f"{ctx}: fragmento de {hasta - desde + 1} líneas recortado a {MAX_LINEAS}; elegí las líneas clave")
-        hasta = desde + MAX_LINEAS - 1
-    return {"desde": desde, "codigo": "\n".join(lineas[desde - 1: hasta])}
+class Indice:
+    """Usos de funciones y clases en todo el repo, con la función que contiene cada uso."""
+
+    def __init__(self, raiz: Path):
+        self.raiz = raiz
+        self.textos: dict[str, list[str]] = {}
+        for f in caminar(raiz):
+            if f.suffix in EXT_CODIGO and f.stat().st_size < 300_000:
+                rel = f.relative_to(raiz).as_posix()
+                self.textos[rel] = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        self._funcs: dict[str, list[tuple[str, int, int]]] = {}
+
+    def funciones(self, archivo: str) -> list[tuple[str, int, int]]:
+        if archivo not in self._funcs:
+            lineas = self.textos.get(archivo, [])
+            txt = "\n".join(lineas)
+            res = []
+            if archivo.endswith(".py"):
+                try:
+                    for n in ast.walk(ast.parse(txt)):
+                        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            res.append((n.name, n.lineno, n.end_lineno or n.lineno))
+                except SyntaxError:
+                    pass
+            else:
+                for m in re.finditer(r"^[ \t]*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s*\*?\s*(\w+)|"
+                                     r"(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>)", txt, re.M):
+                    nombre = m.group(1) or m.group(2)
+                    r = rango_simbolo(txt, archivo, nombre)
+                    if r:
+                        res.append((nombre, *r))
+            self._funcs[archivo] = res
+        return self._funcs[archivo]
+
+    def encierra(self, archivo: str, linea: int) -> tuple[str, int, int] | None:
+        dentro = [f for f in self.funciones(archivo) if f[1] <= linea <= f[2]]
+        return min(dentro, key=lambda f: f[2] - f[1]) if dentro else None
+
+    def usos(self, archivo: str, simbolo: str, desde: int, hasta: int, llamada: bool = True) -> list[dict]:
+        cola = r"\s*\(" if llamada else r"\b"
+        patrones = [rf"\b{re.escape(Path(archivo).stem)}\.{re.escape(simbolo)}{cola}"]
+        # una clase (Pet) es inconfundible aunque sea corta; una función corta solo con el módulo delante
+        if simbolo[:1].isupper() or (simbolo not in GENERICOS and len(simbolo) >= 4):
+            patrones.append(rf"(?<![\w.]){re.escape(simbolo)}{cola}")
+        rx = re.compile("|".join(patrones))
+        out = []
+        for rel, lineas in self.textos.items():
+            for i, ln in enumerate(lineas, 1):
+                if rel == archivo and desde <= i <= hasta:
+                    continue
+                if re.match(r"\s*(from\s+\S+\s+)?import\b", ln) or not rx.search(ln):
+                    continue
+                f = self.encierra(rel, i)
+                out.append({"archivo": rel, "linea": i, "funcion": f[0] if f else None,
+                            "rango": (f[1], f[2]) if f else None, "test": es_test(rel)})
+        return out
+
+
+def manejadores(datos: dict, esqueleto: Path) -> dict[tuple[str, str], str]:
+    """(archivo, función) → endpoint, según el esqueleto y según los pasos del atlas."""
+    res: dict[tuple[str, str], str] = {}
+    if esqueleto.exists():
+        sk = json.loads(esqueleto.read_text(encoding="utf-8"))
+        for n in sk.get("nodos", []):
+            metodos = sorted(n.get("metodos", []), key=lambda m: m["linea"])
+            for e in n.get("endpoints", []):
+                m = next((m for m in metodos if m["linea"] >= e["linea"]), None)
+                if m:
+                    res[(n["archivo"], m["nombre"])] = f"{e['metodo']} {e['ruta']}"
+    capas = datos.get("archivos", {})
+    for e in datos.get("endpoints", []):
+        for p in e.get("pasos", []):
+            if p.get("simbolo") and capas.get(p.get("archivo"), {}).get("capa") == "router":
+                res[(p["archivo"], p["simbolo"])] = ep_id(e)
+    return res
+
+
+def afectados(idx: Indice, mans: dict, archivo: str, simbolo: str, desde: int, hasta: int, llamada: bool = True):
+    """Usos directos y endpoints alcanzados subiendo por quien llama, hasta PROFUNDIDAD niveles."""
+    directos = idx.usos(archivo, simbolo, desde, hasta, llamada)
+    endpoints, tests, vistos = set(), set(), set()
+    cola = [(u, 1) for u in directos]
+    if (archivo, simbolo) in mans:
+        endpoints.add(mans[(archivo, simbolo)])
+    while cola:
+        u, prof = cola.pop()
+        if u["test"]:
+            tests.add((u["archivo"], u["funcion"] or ""))
+            continue
+        if not u["funcion"] or (u["archivo"], u["funcion"]) in vistos:
+            continue
+        vistos.add((u["archivo"], u["funcion"]))
+        if (u["archivo"], u["funcion"]) in mans:
+            endpoints.add(mans[(u["archivo"], u["funcion"])])
+        elif prof < PROFUNDIDAD:
+            cola += [(x, prof + 1) for x in idx.usos(u["archivo"], u["funcion"], *u["rango"])]
+    return directos, endpoints, tests
+
+
+def enfocar(datos: dict, eid: str, repo_dir: Path, esqueleto: Path) -> dict:
+    """Deja solo un endpoint y agrega el impacto calculado sobre el código real."""
+    eps = {ep_id(e): e for e in datos.get("endpoints", [])}
+    e = eps[eid]
+    idx = Indice(repo_dir)
+    mans = manejadores(datos, esqueleto)
+    otro = lambda x: not mismo_endpoint(x, eid)  # noqa: E731
+    # nombres del atlas cuando existen (rutas completas), si no los del esqueleto
+    nombre = lambda x: next((k for k in eps if mismo_endpoint(k, x)), x)  # noqa: E731
+
+    impacto, tests = [], set()
+    for p in e.get("pasos", []) + e.get("frontend", []):
+        if not (p.get("archivo") and p.get("simbolo")) or any(i["simbolo"] == p["simbolo"] and i["archivo"] == p["archivo"] for i in impacto):
+            continue
+        directos, alcanzados, ts = afectados(idx, mans, p["archivo"], p["simbolo"], p["desde"], p["hasta"])
+        tests |= ts
+        impacto.append({"archivo": p["archivo"], "simbolo": p["simbolo"], "desde": p["desde"], "hasta": p["hasta"],
+                        "usos": [{"archivo": u["archivo"], "linea": u["linea"], "funcion": u["funcion"]} for u in directos if not u["test"]][:20],
+                        "endpoints": sorted({nombre(x) for x in alcanzados if otro(x)})})
+
+    tablas_e = {t["tabla"] for t in e.get("tablas", [])}
+    tablas_d = [t for t in datos.get("tablas", []) if t["nombre"] in tablas_e]
+    tablas_comp = []
+    for t in tablas_d:
+        por_atlas = {ep_id(o): sorted({x["op"] for x in o.get("tablas", []) if x["tabla"] == t["nombre"]})
+                     for o in eps.values() if o is not e and any(x["tabla"] == t["nombre"] for x in o.get("tablas", []))}
+        _, alcanzados, _ = afectados(idx, mans, t["archivo"], t.get("modelo") or t["simbolo"], t["desde"], t["hasta"], llamada=False)
+        for x in alcanzados:
+            if otro(x):
+                por_atlas.setdefault(nombre(x), [])
+        tablas_comp.append({"tabla": t["nombre"], "endpoints": [{"id": k, "ops": v} for k, v in sorted(por_atlas.items())]})
+
+    # tests: los que llaman a la cadena, más los que piden la ruta por HTTP
+    ruta = re.sub(r"\{[^}]*\}", "", e["ruta"]).rstrip("/")
+    for rel, lineas in idx.textos.items():
+        if es_test(rel):
+            for i, ln in enumerate(lineas, 1):
+                if ruta and ruta in ln:
+                    f = idx.encierra(rel, i)
+                    tests.add((rel, f[0] if f else ""))
+    if e.get("tests") is None:
+        e["tests"] = [{"archivo": a, "simbolo": f} for a, f in sorted(tests) if f]
+        for t in e["tests"]:
+            t["desde"], t["hasta"] = rango_simbolo("\n".join(idx.textos[t["archivo"]]), t["archivo"], t["simbolo"]) or (1, 1)
+
+    refs = e.get("frontend", []) + e.get("pasos", []) + ([e["entrada"]] if e.get("entrada") else []) + e["tests"]
+    rangos = [(r["archivo"], r["desde"], r["hasta"]) for r in refs if r.get("archivo") and r.get("desde")]
+    hallazgos = [h for h in datos.get("hallazgos", []) if h.get("endpoint") == eid or any(
+        h["archivo"] == a and h["desde"] <= hasta and h["hasta"] >= desde for a, desde, hasta in rangos)]
+    usados = {a for a, _, _ in rangos} | {t["archivo"] for t in tablas_d} | {h["archivo"] for h in hallazgos}
+    return {
+        **{k: datos[k] for k in ("proyecto", "naciones") if k in datos},
+        "archivos": {k: v for k, v in datos.get("archivos", {}).items() if k in usados},
+        "endpoints": [e],
+        "tablas": tablas_d,
+        "hallazgos": hallazgos,
+        "llamadas_rotas": [r for r in datos.get("llamadas_rotas", []) if r.get("coincide_con") == eid],
+        "foco": {"endpoint": eid, "impacto": impacto, "tablas": tablas_comp,
+                 "total_endpoints": len(eps), "total_archivos": len(datos.get("archivos", {}))},
+    }
+
+
+def slug(eid: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", eid.lower()).strip("-")
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("repo", type=Path)
-    ap.add_argument("--atlas-dir", type=Path)
+    ap.add_argument("--atlas", type=Path, help="default: <repo>/.atlas/atlas.json")
+    ap.add_argument("--esqueleto", type=Path, help="default: skeleton.json junto a atlas.json")
+    ap.add_argument("--endpoint", help='genera solo esa ruta, p. ej. "POST /api/appointments"')
     ap.add_argument("-o", "--salida", type=Path)
     args = ap.parse_args()
 
-    repo = args.repo.resolve()
-    d = args.atlas_dir or repo / ".atlas"
-    sk_path, en_path = d / "skeleton.json", d / "enrich.json"
-    if not sk_path.exists():
-        sys.exit(f"Falta {sk_path}: corré primero extract.py")
-    sk = json.loads(sk_path.read_text(encoding="utf-8"))
-    en = json.loads(en_path.read_text(encoding="utf-8")) if en_path.exists() else {}
-    avisos: list[str] = []
+    atlas = args.atlas or args.repo / ".atlas" / "atlas.json"
+    datos, repo = validar(args.repo, atlas, args.endpoint)
+    if repo.errores or datos is None:
+        informar(repo)
+        sys.exit("No genero el visor hasta que validate.py dé 0 errores.")
+    if repo.avisos:
+        print(f"{len(repo.avisos)} avisos de validación (corré validate.py para verlos).")
 
-    proyecto = en.get("proyecto", {})
-    nodos = {"sistema": {"id": "sistema", "nombre": proyecto.get("nombre") or sk.get("repo", "Sistema"),
-                         "nivel": "sistema", "padre": None, "tipo": "sistema",
-                         "resumen": proyecto.get("resumen", ""), "porque": proyecto.get("porque", ""),
-                         "pregunta": proyecto.get("pregunta", "")}}
-    for n in sk["nodos"]:
-        nodos[n["id"]] = dict(n)
+    if args.endpoint:
+        datos = enfocar(datos, args.endpoint, repo.raiz, args.esqueleto or atlas.parent / "skeleton.json")
+    usados = set(datos.get("archivos", {})) | {r["archivo"] for r, _ in recorrer_refs(datos) if r.get("archivo")}
+    fuentes = {k: repo.texto(k) for k in sorted(usados) if repo.texto(k) is not None}
 
-    # nodos nuevos (nivel código, o contenedores/módulos que el extractor no vio)
-    for i, nn in enumerate(en.get("nuevos", [])):
-        ctx = f"nuevos[{i}] {nn.get('id')}"
-        if not nn.get("id") or nn.get("padre") not in nodos:
-            avisos.append(f"{ctx}: padre inexistente ({nn.get('padre')})")
-            continue
-        n = {"nivel": "codigo", "tipo": "metodo", **{k: v for k, v in nn.items() if k not in ("desde", "hasta")}}
-        if nn.get("archivo") and nn.get("desde"):
-            f = fragmento(repo, nn["archivo"], int(nn["desde"]), int(nn.get("hasta") or nn["desde"]), avisos, ctx)
-            if f:
-                n["linea"] = f["desde"]
-                n["codigo"] = f
-        nodos[n["id"]] = n
+    crudo = json.dumps(fuentes, ensure_ascii=False).encode("utf-8")
+    datos["fuentesGz"] = base64.b64encode(gzip.compress(crudo, 9)).decode("ascii")
+    payload = json.dumps(datos, ensure_ascii=False).replace("<", "\\u003c")
 
-    # enriquecimiento de nodos existentes
-    for nid, extra in en.get("nodos", {}).items():
-        if nid not in nodos:
-            avisos.append(f"nodos.{nid}: no existe en el esqueleto (¿renombrado o borrado?)")
-            continue
-        for k in ("resumen", "porque", "pregunta", "nombre", "tipo"):
-            if extra.get(k):
-                nodos[nid][k] = extra[k]
-        if extra.get("desde") and nodos[nid].get("archivo"):
-            f = fragmento(repo, nodos[nid]["archivo"], int(extra["desde"]), int(extra.get("hasta") or extra["desde"]),
-                          avisos, f"nodos.{nid}")
-            if f:
-                nodos[nid]["codigo"] = f
-
-    # relaciones
-    quitar = {(r["de"], r["a"]) for r in en.get("quitar_relaciones", [])}
-    rels = [r for r in sk["relaciones"] if (r["de"], r["a"]) not in quitar]
-    for i, r in enumerate(en.get("relaciones", [])):
-        if r.get("de") in nodos and r.get("a") in nodos:
-            rels.append({"de": r["de"], "a": r["a"], "etiqueta": r.get("etiqueta", "usa"), "origen": "agente"})
-        else:
-            avisos.append(f"relaciones[{i}]: extremo inexistente {r.get('de')} → {r.get('a')}")
-
-    # flujos
-    flujos = []
-    for i, fl in enumerate(en.get("flujos", [])):
-        pasos = []
-        for j, p in enumerate(fl.get("pasos", [])):
-            ctx = f"flujos[{fl.get('id', i)}].pasos[{j}]"
-            if p.get("nodo") not in nodos:
-                avisos.append(f"{ctx}: nodo inexistente {p.get('nodo')}")
-                continue
-            paso = {k: v for k, v in p.items() if k not in ("desde", "hasta")}
-            archivo = p.get("archivo") or nodos[p["nodo"]].get("archivo")
-            if archivo and p.get("desde"):
-                paso["archivo"] = archivo
-                f = fragmento(repo, archivo, int(p["desde"]), int(p.get("hasta") or p["desde"]), avisos, ctx)
-                if f:
-                    paso["codigo"] = f
-            pasos.append(paso)
-        if pasos:
-            flujos.append({**{k: v for k, v in fl.items() if k != "pasos"}, "pasos": pasos})
-
-    # cobertura: qué falta explicar
-    sin_resumen = [n for n in nodos.values() if n["nivel"] in ("sistema", "contenedor", "modulo") and not n.get("resumen")]
-    clave = ("controller", "service", "repository", "entity", "pagina", "servicio-api", "aplicacion", "hook")
-    sin_resumen_k = [n for n in nodos.values() if n["nivel"] == "componente" and n.get("tipo") in clave
-                     and not n.get("resumen")]
-
-    datos = {"repo": sk.get("repo"), "generado": sk.get("generado"), "nodos": list(nodos.values()),
-             "relaciones": rels, "flujos": flujos}
+    vendor = VENDOR.read_text(encoding="utf-8")
+    if "</script" in vendor.lower():
+        sys.exit(f"{VENDOR} contiene </script y rompería el HTML")
     html = PLANTILLA.read_text(encoding="utf-8")
-    if MARCA not in html:
-        sys.exit(f"La plantilla {PLANTILLA} no tiene la marca {MARCA}")
-    payload = json.dumps(datos, ensure_ascii=False).replace("</", "<\\/")
-    salida = args.salida or d / "atlas.html"
-    salida.write_text(html.replace(MARCA, payload), encoding="utf-8")
+    for marca in ("/*__VENDOR__*/", "__ATLAS_DATOS__", "<title>Atlas del código</title>"):
+        if html.count(marca) != 1:
+            sys.exit(f"La plantilla {PLANTILLA} debe tener exactamente una vez: {marca}")
+    nombre = datos.get("proyecto", {}).get("nombre") or repo.raiz.name
+    titulo = f"Atlas {nombre}" + (f" {args.endpoint}" if args.endpoint else "")
+    html = (html.replace("/*__VENDOR__*/", vendor).replace("__ATLAS_DATOS__", payload)
+            .replace("<title>Atlas del código</title>", f"<title>{escape(titulo)}</title>"))
 
-    print(f"Atlas: {salida}  ({salida.stat().st_size // 1024} KB)")
-    print(f"Nodos: {len(nodos)} | relaciones: {len(rels)} | flujos: {len(flujos)}")
-    if sin_resumen:
-        print(f"\nSin resumen ({len(sin_resumen)} de sistema/contenedor/módulo):")
-        for n in sin_resumen[:30]:
-            print(f"  {n['id']}")
-    if sin_resumen_k:
-        print(f"\nComponentes clave sin resumen: {len(sin_resumen_k)}"
-              + (" (ej.: " + ", ".join(n["id"] for n in sin_resumen_k[:5]) + ")" if sin_resumen_k else ""))
-    if avisos:
-        print(f"\nAVISOS ({len(avisos)}), corregí enrich.json:")
-        for a in avisos:
-            print(f"  - {a}")
+    salida = args.salida or atlas.parent / (f"atlas-{slug(args.endpoint)}.html" if args.endpoint else "atlas.html")
+    salida.parent.mkdir(parents=True, exist_ok=True)
+    salida.write_text(html, encoding="utf-8")
+    print(f"Atlas: {salida}  ({salida.stat().st_size // 1024} KB, {len(fuentes)} archivos fuente)")
+    if args.endpoint:
+        f = datos["foco"]
+        compartidas = [i for i in f["impacto"] if i["endpoints"]]
+        print(f"Foco {args.endpoint}: {len(f['impacto'])} funciones en la cadena, {len(compartidas)} compartidas con otras rutas, "
+              f"{len(datos['endpoints'][0]['tests'])} tests, {len(datos['hallazgos'])} hallazgos en el camino.")
+        for i in compartidas:
+            print(f"  {i['simbolo']}() también la alcanzan: {', '.join(i['endpoints'])}")
 
 
 if __name__ == "__main__":

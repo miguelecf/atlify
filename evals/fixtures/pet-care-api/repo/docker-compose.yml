@@ -1,0 +1,13 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: petcare
+      POSTGRES_PASSWORD: petcare
+  backend:
+    build: ./backend
+    depends_on: [db]
+    ports: ["8000:8000"]
+  frontend:
+    build: ./frontend
+    ports: ["5173:5173"]

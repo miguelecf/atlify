@@ -1,0 +1,6 @@
+interface:
+  display_name: "Atlas del código"
+  short_description: "Mapa interactivo de un repo: endpoints, recorridos y problemas"
+  default_prompt: "Usá $atlas-codigo para generar el atlas de este repositorio."
+policy:
+  allow_implicit_invocation: false

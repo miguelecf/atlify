@@ -2,14 +2,16 @@
 """Extrae el esqueleto estructural de un repositorio a JSON.
 
 Soporta Java/Spring, JS/TS/React y Python/FastAPI con heurísticas (regex),
-no con un parser real. El esqueleto es la parte mecánica del atlas; el agente
-lo corrige y lo enriquece después en enrich.json.
+no con un parser real. El esqueleto es la parte mecánica del atlas: el agente
+lo usa como mapa para escribir .atlas/atlas.json, y validate.py lo usa para
+medir la cobertura.
 
 Uso:
     python extract.py <repo> [-o <repo>/.atlas/skeleton.json]
 
 Imprime por stdout un árbol compacto (id, tipo, nombre) para que el agente
-no tenga que leer el JSON entero, y un diff contra el esqueleto anterior si existe.
+no tenga que leer el JSON entero, las llamadas HTTP sospechosas (PARA REVISAR)
+y un diff contra el esqueleto anterior si existe.
 """
 from __future__ import annotations
 
@@ -303,7 +305,7 @@ def resolver_js(origen: Path, spec: str, raiz_cont: Path) -> Path | None:
 # ─────────────────────────── Python ───────────────────────────
 
 RE_PY_DEF = re.compile(r"^(?:async\s+)?def\s+(\w+)|^class\s+(\w+)", re.M)
-RE_PY_ROUTE = re.compile(r"^@(\w+)\.(get|post|put|delete|patch)\(\s*['\"]([^'\"]*)['\"]", re.M)
+RE_PY_ROUTE = re.compile(r"^[ \t]*@(\w+)\.(get|post|put|delete|patch)\(\s*['\"]([^'\"]*)['\"]", re.M)
 RE_PY_PREFIX = re.compile(r"APIRouter\([^)]*prefix\s*=\s*['\"]([^'\"]+)['\"]")
 RE_PY_IMPORT = re.compile(r"^\s*(?:from\s+(\.*[\w.]*)\s+import\s+([\w, ()*]+)|import\s+([\w.]+))", re.M)
 
@@ -582,6 +584,44 @@ def extraer(raiz: Path) -> dict:
     }
 
 
+def solo_por_parametro(front: list[str], back: list[str]) -> bool:
+    """La llamada coincide únicamente porque un literal del front cae en un parámetro del back."""
+    corto, largo = (front, back) if len(front) <= len(back) else (back, front)
+    pares = zip(front[len(front) - len(corto):], back[len(back) - len(corto):])
+    return any(f != "*" and b == "*" for f, b in pares)
+
+
+def revisar_http(sk: dict) -> list[str]:
+    """Llamadas del front sin endpoint (o que solo coinciden por un parámetro) y endpoints que nadie llama."""
+    cont = lambda n: n["padre"].split(":")[1]  # noqa: E731
+    eps = [(n, e) for n in sk["nodos"] for e in n.get("endpoints", [])]
+    con_eps = {cont(n) for n, _ in eps}
+    llamadas = [(n, c) for n in sk["nodos"] if n["nivel"] == "componente" and cont(n) not in con_eps for c in n.get("http", [])]
+    if not eps or not llamadas:
+        return []
+    out, usados = [], set()
+    for n, c in llamadas:
+        sf = segmentos(c["ruta"])
+        if not sf or all(s == "*" for s in sf):
+            continue  # ruta armada en tiempo de ejecución: no se puede juzgar
+        exactos, por_param = [], []
+        for bn, e in eps:
+            if e["metodo"] in ("ANY", c["metodo"]) and coincide(sf, segmentos(e["ruta"])):
+                (por_param if solo_por_parametro(sf, segmentos(e["ruta"])) else exactos).append((bn, e))
+        usados |= {(bn["id"], e["metodo"], e["ruta"]) for bn, e in exactos}  # coincidir por parámetro no es uso real
+        donde = f"{n['archivo']}:{c['linea']} {c['metodo']} {c['ruta']}"
+        if not exactos and por_param:
+            bn, e = por_param[0]
+            out.append(f"  llamada {donde} solo coincide porque un literal cae en un parámetro de {e['metodo']} {e['ruta']} "
+                       f"({bn['archivo']}:{e['linea']}); probablemente la ruta no existe")
+        elif not exactos:
+            out.append(f"  llamada {donde} no coincide con ningún endpoint")
+    for bn, e in eps:
+        if (bn["id"], e["metodo"], e["ruta"]) not in usados:
+            out.append(f"  endpoint {e['metodo']} {e['ruta']} ({bn['archivo']}:{e['linea']}) no lo llama ningún frontend")
+    return out
+
+
 def arbol(sk: dict) -> str:
     hijos: dict[str, list[dict]] = {}
     for n in sk["nodos"]:
@@ -610,7 +650,7 @@ def diff(viejo: dict, nuevo: dict) -> str:
     cambiados = sorted(k for k in set(a) & set(b) if a[k] != b[k])
     if not (nuevos or borrados or cambiados):
         return "Sin cambios en componentes desde el último esqueleto."
-    out = ["CAMBIOS desde el último esqueleto (actualizá solo esto en enrich.json):"]
+    out = ["CAMBIOS desde el último esqueleto (revisá en atlas.json lo que pasa por estos archivos):"]
     for titulo, lista in (("nuevos", nuevos), ("modificados", cambiados), ("borrados", borrados)):
         if lista:
             out.append(f"  {titulo} ({len(lista)}):")
@@ -639,6 +679,10 @@ def main():
     plural = {"contenedor": "contenedores", "modulo": "módulos", "componente": "componentes"}
     print("Nodos: " + ", ".join(f"{v} {plural.get(k, k)}" for k, v in niveles.items()) + f" | relaciones: {len(sk['relaciones'])}")
     print("\n" + arbol(sk))
+    revisar = revisar_http(sk)
+    if revisar:
+        print("\nPARA REVISAR (detectado por el script; confirmalo leyendo el código antes de reportarlo):")
+        print("\n".join(revisar))
     if viejo:
         print("\n" + diff(viejo, sk))
 

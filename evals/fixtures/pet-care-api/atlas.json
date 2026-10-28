@@ -1,0 +1,398 @@
+{
+  "proyecto": {
+    "nombre": "pet-care-api",
+    "resumen": "Sistema de turnos para una veterinaria y peluquería de mascotas. Los dueños registran sus mascotas y reservan turnos de baño, corte o consulta.",
+    "porque": "Backend en capas (router → service → repository) para que las reglas de negocio, como no reservar un horario ocupado, se puedan probar sin HTTP ni base de datos. El costo es más archivos por funcionalidad, y no todas las rutas respetan la separación (ver Hallazgos).",
+    "rama": "main",
+    "stack": [
+      { "nombre": "React", "nacion": "frontend" },
+      { "nombre": "TypeScript", "nacion": "frontend" },
+      { "nombre": "axios", "nacion": "frontend" },
+      { "nombre": "Python", "nacion": "backend" },
+      { "nombre": "FastAPI", "nacion": "backend" },
+      { "nombre": "SQLAlchemy", "nacion": "backend" },
+      { "nombre": "JWT", "nacion": "backend" },
+      { "nombre": "PostgreSQL", "nacion": "db" },
+      { "nombre": "Docker Compose", "nacion": "infra" }
+    ]
+  },
+
+  "naciones": [
+    { "id": "frontend", "nombre": "Frontend", "tipo": "React + Vite", "dir": "frontend",
+      "resumen": "SPA con 4 pantallas. Habla con la API solo a través de src/api/, que agrega el token JWT a cada pedido." },
+    { "id": "backend", "nombre": "Backend", "tipo": "FastAPI", "dir": "backend",
+      "resumen": "API REST bajo /api. Cada pedido entra por un router, la regla de negocio vive en services/ y el acceso a datos en repositories/." },
+    { "id": "db", "nombre": "Base de datos", "tipo": "PostgreSQL 16",
+      "resumen": "Cuatro tablas. Los modelos están en backend/app/models.py y las crea SQLAlchemy." }
+  ],
+
+  "archivos": {
+    "frontend/src/App.tsx": { "nacion": "frontend", "capa": "rutas", "rol": "Define qué pantalla se muestra en cada URL." },
+    "frontend/src/pages/LoginPage.tsx": { "nacion": "frontend", "capa": "pagina", "rol": "Pantalla de login: manda email y contraseña y guarda el token." },
+    "frontend/src/pages/AppointmentsPage.tsx": { "nacion": "frontend", "capa": "pagina", "rol": "Lista los turnos del dueño y permite cancelarlos." },
+    "frontend/src/pages/NewAppointmentPage.tsx": { "nacion": "frontend", "capa": "pagina", "rol": "Formulario para reservar un turno nuevo." },
+    "frontend/src/pages/PetsPage.tsx": { "nacion": "frontend", "capa": "pagina", "rol": "Lista, busca y agrega mascotas." },
+    "frontend/src/api/client.ts": { "nacion": "frontend", "capa": "cliente-api", "rol": "Instancia de axios: URL base y token JWT en cada pedido." },
+    "frontend/src/api/auth.ts": { "nacion": "frontend", "capa": "cliente-api", "rol": "Login y datos del usuario actual." },
+    "frontend/src/api/appointments.ts": { "nacion": "frontend", "capa": "cliente-api", "rol": "Funciones para listar, crear y cancelar turnos." },
+    "frontend/src/api/pets.ts": { "nacion": "frontend", "capa": "cliente-api", "rol": "Funciones para listar, crear y buscar mascotas." },
+    "backend/app/main.py": { "nacion": "backend", "capa": "aplicacion", "rol": "Crea la app y monta todos los routers bajo /api." },
+    "backend/app/routers/auth.py": { "nacion": "backend", "capa": "router", "rol": "Endpoints de login y usuario actual." },
+    "backend/app/routers/appointments.py": { "nacion": "backend", "capa": "router", "rol": "Endpoints de turnos: valida la entrada y delega en el service." },
+    "backend/app/routers/pets.py": { "nacion": "backend", "capa": "router", "rol": "Endpoints de mascotas. Tiene lógica de negocio que debería estar en un service." },
+    "backend/app/routers/services.py": { "nacion": "backend", "capa": "router", "rol": "Catálogo de servicios (baño, corte, consulta)." },
+    "backend/app/services/appointment_service.py": { "nacion": "backend", "capa": "service", "rol": "Reglas de turnos: la mascota es del dueño y el horario está libre." },
+    "backend/app/repositories/appointment_repository.py": { "nacion": "backend", "capa": "repository", "rol": "Consultas SQL sobre la tabla appointments." },
+    "backend/app/repositories/pet_repository.py": { "nacion": "backend", "capa": "repository", "rol": "Consultas SQL sobre la tabla pets." },
+    "backend/app/models.py": { "nacion": "backend", "capa": "modelo", "rol": "Modelos SQLAlchemy: cada clase es una tabla." },
+    "backend/app/schemas/appointment.py": { "nacion": "backend", "capa": "schema", "rol": "Forma de los datos que entran y salen de la API de turnos." },
+    "backend/app/core/security.py": { "nacion": "backend", "capa": "seguridad", "rol": "Crea y valida tokens JWT; obtiene el usuario del pedido." },
+    "backend/app/core/database.py": { "nacion": "backend", "capa": "config", "rol": "Conexión a PostgreSQL y una sesión por pedido." },
+    "docker-compose.yml": { "nacion": "infra", "capa": "config", "rol": "Levanta db, backend y frontend juntos." }
+  },
+
+  "endpoints": [
+    {
+      "metodo": "POST", "ruta": "/api/auth/login", "etiqueta": "Auth", "auth": null,
+      "resumen": "Inicia sesión y devuelve un token JWT.",
+      "explicacion": "Busca al usuario por email y compara la contraseña con el hash guardado. Si coincide, firma un token que vale 8 horas. El frontend lo guarda y lo manda en cada pedido siguiente.",
+      "respuestas": [{ "codigo": 200, "desc": "Token emitido" }, { "codigo": 401, "desc": "Credenciales inválidas" }],
+      "frontend": [
+        { "archivo": "frontend/src/pages/LoginPage.tsx", "simbolo": "onSubmit" },
+        { "archivo": "frontend/src/api/auth.ts", "simbolo": "login" }
+      ],
+      "tablas": [{ "tabla": "users", "op": "SELECT" }],
+      "pasos": [
+        { "archivo": "frontend/src/pages/LoginPage.tsx", "simbolo": "onSubmit", "accion": "Envía el formulario",
+          "explicacion": "Al apretar Entrar llama a login(). Si falla, muestra el error; si sale bien, navega a /turnos." },
+        { "archivo": "frontend/src/api/auth.ts", "simbolo": "login", "accion": "POST /api/auth/login",
+          "explicacion": "Manda los datos como formulario (no JSON), porque OAuth2PasswordRequestForm de FastAPI lo exige. Guarda el token en localStorage.",
+          "pregunta": "¿Qué riesgo tiene guardar el token en localStorage y qué alternativa usarías?" },
+        { "archivo": "backend/app/routers/auth.py", "simbolo": "login", "accion": "Verifica la contraseña",
+          "explicacion": "bcrypt.verify compara la contraseña con el hash. El mensaje de error es el mismo si el email no existe o si la clave es incorrecta: así no se puede averiguar qué emails están registrados." },
+        { "archivo": "backend/app/core/security.py", "simbolo": "create_token", "accion": "Firma el JWT",
+          "explicacion": "El token lleva el id del usuario y la fecha de vencimiento, firmado con SECRET." },
+        { "tabla": "users", "op": "SELECT", "accion": "Lee el usuario por email" }
+      ]
+    },
+    {
+      "metodo": "GET", "ruta": "/api/auth/me", "etiqueta": "Auth", "auth": "JWT",
+      "resumen": "Devuelve el usuario de la sesión actual.",
+      "explicacion": "get_current_user valida el token y busca al usuario. Este endpoint solo devuelve lo que ya obtuvo esa dependencia.",
+      "respuestas": [{ "codigo": 200, "desc": "Usuario actual" }, { "codigo": 401, "desc": "Token inválido o vencido" }],
+      "frontend": [{ "archivo": "frontend/src/api/auth.ts", "simbolo": "getMe" }],
+      "tablas": [{ "tabla": "users", "op": "SELECT" }],
+      "pasos": [
+        { "archivo": "frontend/src/api/auth.ts", "simbolo": "getMe", "accion": "GET /api/auth/me",
+          "explicacion": "Existe en el cliente, pero ninguna pantalla la usa." },
+        { "archivo": "backend/app/routers/auth.py", "simbolo": "me", "accion": "Devuelve el usuario",
+          "explicacion": "No consulta nada: recibe el usuario ya validado por la dependencia." },
+        { "archivo": "backend/app/core/security.py", "simbolo": "get_current_user", "accion": "Valida el token",
+          "explicacion": "Decodifica el JWT; si es inválido o el usuario no existe, corta con 401 antes de entrar al endpoint." },
+        { "tabla": "users", "op": "SELECT", "accion": "Busca el usuario por id" }
+      ]
+    },
+    {
+      "metodo": "GET", "ruta": "/api/appointments", "etiqueta": "Appointments", "auth": "JWT",
+      "resumen": "Lista los turnos de todas las mascotas del dueño.",
+      "explicacion": "Recorre las mascotas del usuario y, por cada una, busca sus turnos. Funciona, pero hace una consulta por mascota y dos más por turno (ver hallazgo N+1).",
+      "respuestas": [{ "codigo": 200, "desc": "Lista de turnos" }, { "codigo": 401, "desc": "Sin sesión" }],
+      "frontend": [
+        { "archivo": "frontend/src/pages/AppointmentsPage.tsx", "ancla": "listAppointments().then" },
+        { "archivo": "frontend/src/api/appointments.ts", "simbolo": "listAppointments" }
+      ],
+      "tablas": [{ "tabla": "pets", "op": "SELECT" }, { "tabla": "appointments", "op": "SELECT" }, { "tabla": "services", "op": "SELECT" }],
+      "tests": [],
+      "pasos": [
+        { "archivo": "frontend/src/pages/AppointmentsPage.tsx", "ancla": "listAppointments().then", "lineas": 1, "accion": "Carga la pantalla",
+          "explicacion": "Al montarse, la pantalla pide los turnos una sola vez (useEffect con [])." },
+        { "archivo": "frontend/src/api/appointments.ts", "simbolo": "listAppointments", "accion": "GET /api/appointments",
+          "explicacion": "El token lo agrega el interceptor de client.ts; esta función no lo maneja." },
+        { "archivo": "backend/app/routers/appointments.py", "simbolo": "list_appointments", "accion": "Delega en el service",
+          "explicacion": "response_model=list[AppointmentOut] filtra la salida: solo viajan los campos del schema." },
+        { "archivo": "backend/app/services/appointment_service.py", "simbolo": "list_for_owner", "accion": "Arma la lista",
+          "explicacion": "Dos bucles anidados: mascotas → turnos. Cada vuelta interna dispara consultas nuevas.",
+          "pregunta": "Con 3 mascotas y 20 turnos, ¿cuántas consultas SQL se ejecutan? ¿Cómo lo resolverías con una sola?" },
+        { "archivo": "backend/app/repositories/pet_repository.py", "simbolo": "by_owner", "accion": "Mascotas del dueño",
+          "explicacion": "Primera consulta: las mascotas del usuario. La misma función la usan los endpoints de mascotas." },
+        { "archivo": "backend/app/repositories/appointment_repository.py", "simbolo": "by_pet", "accion": "Turnos de una mascota",
+          "explicacion": "Una consulta por mascota." },
+        { "tabla": "appointments", "op": "SELECT", "accion": "Lee turnos, mascotas y servicios" }
+      ]
+    },
+    {
+      "metodo": "POST", "ruta": "/api/appointments", "etiqueta": "Appointments", "auth": "JWT",
+      "resumen": "Reserva un turno nuevo.",
+      "explicacion": "Es el flujo central del sistema. Comprueba que la mascota sea del usuario y que el horario esté libre, inserta el turno y lo devuelve. Si el horario está ocupado responde 409.",
+      "entrada": { "archivo": "backend/app/schemas/appointment.py", "simbolo": "AppointmentCreate" },
+      "respuestas": [
+        { "codigo": 201, "desc": "Turno creado" },
+        { "codigo": 401, "desc": "Sin sesión" },
+        { "codigo": 409, "desc": "Horario ocupado" },
+        { "codigo": 422, "desc": "Datos inválidos" },
+        { "codigo": 500, "desc": "La mascota no es del usuario (debería ser 403)" }
+      ],
+      "frontend": [
+        { "archivo": "frontend/src/pages/NewAppointmentPage.tsx", "simbolo": "onSubmit" },
+        { "archivo": "frontend/src/api/appointments.ts", "simbolo": "createAppointment" }
+      ],
+      "tablas": [{ "tabla": "pets", "op": "SELECT" }, { "tabla": "appointments", "op": "INSERT" }],
+      "tests": [],
+      "pasos": [
+        { "archivo": "frontend/src/pages/NewAppointmentPage.tsx", "simbolo": "onSubmit", "accion": "Click en Reservar",
+          "explicacion": "Toma mascota, servicio y horario del formulario. Cualquier error se muestra igual, así que el usuario no distingue entre horario ocupado y sesión vencida." },
+        { "archivo": "frontend/src/api/appointments.ts", "simbolo": "createAppointment", "accion": "POST /api/appointments",
+          "explicacion": "Traduce camelCase a snake_case, que es lo que espera el schema del backend." },
+        { "archivo": "backend/app/routers/appointments.py", "simbolo": "create_appointment", "accion": "Valida y delega",
+          "explicacion": "FastAPI valida el body contra AppointmentCreate (si falta un campo, devuelve 422 sin ejecutar nada). El router solo traduce SlotTaken a 409.",
+          "pregunta": "¿Por qué conviene que el router no sepa cómo se decide si un horario está ocupado?" },
+        { "archivo": "backend/app/services/appointment_service.py", "simbolo": "book", "accion": "Aplica las reglas",
+          "explicacion": "Primero confirma que la mascota sea del usuario y después que el horario esté libre. Como no depende de HTTP, se puede testear llamándola directo." },
+        { "archivo": "backend/app/repositories/pet_repository.py", "simbolo": "get", "accion": "Busca la mascota",
+          "explicacion": "db.get usa la clave primaria; si la mascota ya está en la sesión, no consulta de nuevo." },
+        { "archivo": "backend/app/repositories/appointment_repository.py", "simbolo": "exists_at", "accion": "¿Horario libre?",
+          "explicacion": "Busca un turno 'scheduled' para el mismo servicio y horario. Los cancelados no cuentan.",
+          "pregunta": "Si dos personas reservan el mismo horario en el mismo milisegundo, ¿qué pasa? ¿Qué lo evitaría desde la base?" },
+        { "archivo": "backend/app/repositories/appointment_repository.py", "simbolo": "add", "accion": "Inserta el turno",
+          "explicacion": "flush() manda el INSERT para obtener el id, pero el commit lo hace el service: así la transacción la controla quien conoce la regla." },
+        { "tabla": "appointments", "op": "INSERT", "accion": "Guarda el turno" }
+      ]
+    },
+    {
+      "metodo": "DELETE", "ruta": "/api/appointments/{appointment_id}", "etiqueta": "Appointments", "auth": null,
+      "resumen": "Cancela un turno.",
+      "explicacion": "No borra la fila: cambia el estado a 'cancelled' para conservar el historial. Pero no exige sesión ni comprueba de quién es el turno.",
+      "respuestas": [{ "codigo": 204, "desc": "Cancelado (o no existía: no avisa)" }],
+      "frontend": [
+        { "archivo": "frontend/src/pages/AppointmentsPage.tsx", "simbolo": "onCancel" },
+        { "archivo": "frontend/src/api/appointments.ts", "simbolo": "cancelAppointment" }
+      ],
+      "tablas": [{ "tabla": "appointments", "op": "UPDATE" }],
+      "pasos": [
+        { "archivo": "frontend/src/pages/AppointmentsPage.tsx", "simbolo": "onCancel", "accion": "Click en Cancelar",
+          "explicacion": "Pide confirmación y, si la API responde bien, actualiza la lista localmente sin volver a pedirla." },
+        { "archivo": "frontend/src/api/appointments.ts", "simbolo": "cancelAppointment", "accion": "DELETE /api/appointments/{id}",
+          "explicacion": "Usa DELETE aunque en realidad hace un cambio de estado." },
+        { "archivo": "backend/app/routers/appointments.py", "simbolo": "cancel_appointment", "accion": "Cancela sin verificar",
+          "explicacion": "No tiene Depends(get_current_user): cualquiera, sin sesión, puede cancelar cualquier turno probando ids.",
+          "pregunta": "¿Qué dos verificaciones faltan acá y en qué capa pondrías cada una?" },
+        { "archivo": "backend/app/services/appointment_service.py", "simbolo": "cancel", "accion": "Cambia el estado",
+          "explicacion": "Si el turno no existe no hace nada y el endpoint igual responde 204." },
+        { "tabla": "appointments", "op": "UPDATE", "accion": "status = 'cancelled'" }
+      ]
+    },
+    {
+      "metodo": "GET", "ruta": "/api/pets", "etiqueta": "Pets", "auth": "JWT",
+      "resumen": "Lista las mascotas del dueño.",
+      "explicacion": "Arma la respuesta a mano con id, nombre y especie, sin response_model.",
+      "respuestas": [{ "codigo": 200, "desc": "Lista de mascotas" }, { "codigo": 401, "desc": "Sin sesión" }],
+      "frontend": [
+        { "archivo": "frontend/src/pages/PetsPage.tsx", "ancla": "listPets().then" },
+        { "archivo": "frontend/src/pages/NewAppointmentPage.tsx", "ancla": "listPets().then" },
+        { "archivo": "frontend/src/api/pets.ts", "simbolo": "listPets" }
+      ],
+      "tablas": [{ "tabla": "pets", "op": "SELECT" }],
+      "pasos": [
+        { "archivo": "frontend/src/pages/PetsPage.tsx", "ancla": "listPets().then", "lineas": 1, "accion": "Carga la pantalla",
+          "explicacion": "La usan dos pantallas: Mascotas y Nuevo turno (para el selector)." },
+        { "archivo": "frontend/src/api/pets.ts", "simbolo": "listPets", "accion": "GET /api/pets", "explicacion": "Pedido simple con el token del interceptor." },
+        { "archivo": "backend/app/routers/pets.py", "simbolo": "list_pets", "accion": "Filtra por dueño",
+          "explicacion": "Usa el id del usuario autenticado, no uno que venga en la URL: así nadie ve mascotas ajenas." },
+        { "archivo": "backend/app/repositories/pet_repository.py", "simbolo": "by_owner", "accion": "Consulta por owner_id", "explicacion": "Un SELECT con WHERE owner_id." },
+        { "tabla": "pets", "op": "SELECT", "accion": "Lee las mascotas" }
+      ]
+    },
+    {
+      "metodo": "POST", "ruta": "/api/pets", "etiqueta": "Pets", "auth": "JWT",
+      "resumen": "Registra una mascota nueva.",
+      "explicacion": "Limita a 5 mascotas por dueño y solo acepta perros y gatos. Esas reglas están en el router y no en un service.",
+      "respuestas": [{ "codigo": 201, "desc": "Mascota creada" }, { "codigo": 400, "desc": "Límite o especie inválida" }],
+      "frontend": [
+        { "archivo": "frontend/src/pages/PetsPage.tsx", "simbolo": "onAdd" },
+        { "archivo": "frontend/src/api/pets.ts", "simbolo": "createPet" }
+      ],
+      "tablas": [{ "tabla": "pets", "op": "SELECT" }, { "tabla": "pets", "op": "INSERT" }],
+      "pasos": [
+        { "archivo": "frontend/src/pages/PetsPage.tsx", "simbolo": "onAdd", "accion": "Click en Agregar",
+          "explicacion": "Pide el nombre con prompt() y manda siempre especie 'perro': no hay forma de cargar un gato desde la interfaz." },
+        { "archivo": "frontend/src/api/pets.ts", "simbolo": "createPet", "accion": "POST /api/pets", "explicacion": "Envía nombre y especie." },
+        { "archivo": "backend/app/routers/pets.py", "simbolo": "create_pet", "accion": "Valida reglas e inserta",
+          "explicacion": "Hace todo en el router: reglas de negocio, creación del modelo y commit.",
+          "pregunta": "Si mañana se pueden cargar mascotas desde un import de CSV, ¿qué reglas se saltearían?" },
+        { "archivo": "backend/app/repositories/pet_repository.py", "simbolo": "by_owner", "accion": "Cuenta las mascotas",
+          "explicacion": "Trae todas las mascotas del dueño solo para contarlas. Un COUNT en SQL sería más barato." },
+        { "tabla": "pets", "op": "INSERT", "accion": "Guarda la mascota" }
+      ]
+    },
+    {
+      "metodo": "GET", "ruta": "/api/pets/{pet_id}", "etiqueta": "Pets", "auth": "JWT",
+      "resumen": "Detalle de una mascota con su dueño.",
+      "explicacion": "Exige sesión, pero no comprueba que la mascota sea del usuario, y devuelve los objetos de la base tal cual, incluido el hash de la contraseña del dueño.",
+      "respuestas": [{ "codigo": 200, "desc": "Mascota y dueño" }, { "codigo": 404, "desc": "No existe" }, { "codigo": 422, "desc": "pet_id no es número" }],
+      "frontend": [],
+      "tablas": [{ "tabla": "pets", "op": "SELECT" }, { "tabla": "users", "op": "SELECT" }],
+      "pasos": [
+        { "archivo": "backend/app/routers/pets.py", "simbolo": "get_pet", "accion": "Busca y devuelve",
+          "explicacion": "Devuelve el modelo Pet y su owner sin pasar por un schema: FastAPI serializa todas las columnas.",
+          "pregunta": "¿Qué cambiarías para que sea imposible filtrar un campo sensible sin darte cuenta?" },
+        { "tabla": "pets", "op": "SELECT", "accion": "Mascota por id" },
+        { "tabla": "users", "op": "SELECT", "accion": "Carga el dueño (lazy)" }
+      ]
+    },
+    {
+      "metodo": "GET", "ruta": "/api/services", "etiqueta": "Services", "auth": null,
+      "resumen": "Catálogo de servicios con duración y precio.",
+      "explicacion": "Es público a propósito: el catálogo se puede ver sin sesión. El frontend no lo usa y tiene la lista copiada a mano.",
+      "respuestas": [{ "codigo": 200, "desc": "Lista de servicios" }],
+      "frontend": [],
+      "tablas": [{ "tabla": "services", "op": "SELECT" }],
+      "pasos": [
+        { "archivo": "backend/app/routers/services.py", "simbolo": "list_services", "accion": "Lista el catálogo",
+          "explicacion": "Consulta directa desde el router, sin repository. Para una lectura tan simple es aceptable." },
+        { "tabla": "services", "op": "SELECT", "accion": "Lee todos los servicios" }
+      ]
+    }
+  ],
+
+  "llamadas_rotas": [
+    {
+      "metodo": "GET", "ruta": "/api/pets/search", "archivo": "frontend/src/api/pets.ts", "simbolo": "searchPets",
+      "usadoEn": [{ "archivo": "frontend/src/pages/PetsPage.tsx", "simbolo": "onSearch" }],
+      "coincide_con": "GET /api/pets/{pet_id}",
+      "hallazgo": "h-busqueda-rota"
+    }
+  ],
+
+  "tablas": [
+    {
+      "nombre": "users", "modelo": "User", "archivo": "backend/app/models.py", "simbolo": "User",
+      "resumen": "Dueños de mascotas y administradores.",
+      "campos": [
+        { "nombre": "id", "tipo": "Integer", "clave": "pk", "desc": "Identificador." },
+        { "nombre": "email", "tipo": "String(120)", "unico": true, "desc": "Login del usuario." },
+        { "nombre": "password_hash", "tipo": "String(200)", "sensible": true, "desc": "Hash bcrypt. Nunca debería salir de la API." },
+        { "nombre": "role", "tipo": "String(20)", "desc": "owner o admin." }
+      ]
+    },
+    {
+      "nombre": "pets", "modelo": "Pet", "archivo": "backend/app/models.py", "simbolo": "Pet",
+      "resumen": "Mascotas, cada una con un dueño.",
+      "campos": [
+        { "nombre": "id", "tipo": "Integer", "clave": "pk", "desc": "Identificador." },
+        { "nombre": "name", "tipo": "String(60)", "desc": "Nombre." },
+        { "nombre": "species", "tipo": "String(30)", "desc": "perro o gato (validado en el router, no en la base)." },
+        { "nombre": "owner_id", "tipo": "Integer", "clave": "fk", "ref": "users.id", "desc": "Dueño." }
+      ]
+    },
+    {
+      "nombre": "services", "modelo": "Service", "archivo": "backend/app/models.py", "simbolo": "Service",
+      "resumen": "Catálogo: baño, corte, consulta.",
+      "campos": [
+        { "nombre": "id", "tipo": "Integer", "clave": "pk", "desc": "Identificador." },
+        { "nombre": "name", "tipo": "String(60)", "desc": "Nombre del servicio." },
+        { "nombre": "duration_min", "tipo": "Integer", "desc": "Duración en minutos (hoy no se usa para validar solapamientos)." },
+        { "nombre": "price", "tipo": "Integer", "desc": "Precio en pesos." }
+      ]
+    },
+    {
+      "nombre": "appointments", "modelo": "Appointment", "archivo": "backend/app/models.py", "simbolo": "Appointment",
+      "resumen": "Turnos reservados. Nunca se borran: se cancelan cambiando el estado.",
+      "campos": [
+        { "nombre": "id", "tipo": "Integer", "clave": "pk", "desc": "Identificador." },
+        { "nombre": "pet_id", "tipo": "Integer", "clave": "fk", "ref": "pets.id", "desc": "Mascota atendida." },
+        { "nombre": "service_id", "tipo": "Integer", "clave": "fk", "ref": "services.id", "desc": "Servicio reservado." },
+        { "nombre": "starts_at", "tipo": "DateTime", "desc": "Inicio del turno. Sin restricción UNIQUE con service_id." },
+        { "nombre": "status", "tipo": "String(20)", "desc": "scheduled, completed o cancelled." }
+      ]
+    }
+  ],
+
+  "hallazgos": [
+    {
+      "id": "h-delete-sin-auth", "severidad": "alta", "origen": "agente", "categoria": "Seguridad",
+      "titulo": "Cualquiera puede cancelar cualquier turno",
+      "explicacion": "DELETE /api/appointments/{id} no exige sesión ni comprueba que el turno sea del usuario. Alguien sin cuenta puede cancelar todos los turnos probando ids del 1 en adelante.",
+      "sugerencia": "Agregar user: User = Depends(get_current_user) en el router y, en el service, verificar que a.pet.owner_id == user.id antes de cancelar.",
+      "archivo": "backend/app/routers/appointments.py", "simbolo": "cancel_appointment",
+      "endpoint": "DELETE /api/appointments/{appointment_id}"
+    },
+    {
+      "id": "h-busqueda-rota", "severidad": "alta", "origen": "script", "categoria": "Integración",
+      "titulo": "La búsqueda de mascotas llama a una ruta que no existe",
+      "explicacion": "searchPets pide GET /api/pets/search, pero el backend no tiene esa ruta. FastAPI la interpreta como GET /api/pets/{pet_id} con pet_id = \"search\" y responde 422 porque no es un número. La búsqueda nunca funcionó.",
+      "sugerencia": "Crear GET /api/pets?q=... en el backend (declarado antes de /{pet_id}) o filtrar en el frontend la lista que ya se tiene.",
+      "archivo": "frontend/src/api/pets.ts", "simbolo": "searchPets"
+    },
+    {
+      "id": "h-hash-expuesto", "severidad": "alta", "origen": "agente", "categoria": "Seguridad",
+      "titulo": "El detalle de mascota devuelve el hash de la contraseña del dueño",
+      "explicacion": "get_pet devuelve el modelo Pet y su owner sin response_model. FastAPI serializa todas las columnas de User, incluido password_hash.",
+      "sugerencia": "Definir PetDetailOut y OwnerOut con solo los campos públicos y declararlo en response_model.",
+      "archivo": "backend/app/routers/pets.py", "simbolo": "get_pet",
+      "endpoint": "GET /api/pets/{pet_id}", "tabla": "users"
+    },
+    {
+      "id": "h-idor-pet", "severidad": "alta", "origen": "agente", "categoria": "Seguridad",
+      "titulo": "Se pueden ver mascotas de otros dueños",
+      "explicacion": "get_pet exige sesión pero no compara pet.owner_id con el usuario. Cambiando el id en la URL se ve cualquier mascota (y su dueño). Este tipo de fallo se llama IDOR.",
+      "sugerencia": "Responder 404 si pet.owner_id != user.id (404 y no 403, para no confirmar que el id existe).",
+      "archivo": "backend/app/routers/pets.py", "simbolo": "get_pet",
+      "endpoint": "GET /api/pets/{pet_id}"
+    },
+    {
+      "id": "h-carrera-turno", "severidad": "media", "origen": "agente", "categoria": "Datos",
+      "titulo": "Dos reservas simultáneas pueden ocupar el mismo horario",
+      "explicacion": "book primero pregunta si el horario está libre y después inserta. Si dos pedidos llegan a la vez, los dos ven el horario libre y los dos insertan. La tabla no tiene una restricción UNIQUE que lo impida.",
+      "sugerencia": "Agregar un índice único parcial (service_id, starts_at) WHERE status = 'scheduled' y traducir el IntegrityError a SlotTaken.",
+      "archivo": "backend/app/services/appointment_service.py", "simbolo": "book",
+      "endpoint": "POST /api/appointments", "tabla": "appointments"
+    },
+    {
+      "id": "h-500-permiso", "severidad": "media", "origen": "agente", "categoria": "Errores",
+      "titulo": "Reservar con una mascota ajena da error 500",
+      "explicacion": "book lanza PermissionError, pero el router solo atrapa SlotTaken. La excepción sube y el cliente recibe un 500 genérico en lugar de un 403 o 404.",
+      "sugerencia": "Crear una excepción de dominio (PetNotOwned) y traducirla a 404 en el router, igual que se hace con SlotTaken.",
+      "archivo": "backend/app/routers/appointments.py", "simbolo": "create_appointment",
+      "endpoint": "POST /api/appointments"
+    },
+    {
+      "id": "h-n-mas-1", "severidad": "media", "origen": "agente", "categoria": "Rendimiento",
+      "titulo": "Listar turnos hace una consulta por mascota y dos por turno",
+      "explicacion": "list_for_owner consulta los turnos de cada mascota por separado, y _to_out accede a a.pet y a.service, que se cargan con una consulta cada uno. Con 3 mascotas y 20 turnos son unas 44 consultas para una sola pantalla.",
+      "sugerencia": "Una sola consulta con join a pets filtrando por owner_id, más selectinload(Appointment.pet, Appointment.service).",
+      "archivo": "backend/app/services/appointment_service.py", "simbolo": "list_for_owner",
+      "endpoint": "GET /api/appointments"
+    },
+    {
+      "id": "h-logica-router", "severidad": "media", "origen": "agente", "categoria": "Diseño",
+      "titulo": "Las reglas de mascotas están en el router",
+      "explicacion": "El límite de 5 mascotas y las especies permitidas se validan en create_pet. Cualquier otra entrada (un import, un admin, un test) tendría que duplicarlas.",
+      "sugerencia": "Moverlas a un pet_service.create(), como ya se hace con los turnos.",
+      "archivo": "backend/app/routers/pets.py", "simbolo": "create_pet",
+      "endpoint": "POST /api/pets"
+    },
+    {
+      "id": "h-secreto-default", "severidad": "media", "origen": "agente", "categoria": "Seguridad",
+      "titulo": "El secreto JWT tiene un valor por defecto",
+      "explicacion": "Si JWT_SECRET no está definida, se usa 'dev-secret'. En producción, cualquiera que lea el repo podría firmar tokens válidos.",
+      "sugerencia": "Fallar al arrancar si falta la variable, en lugar de usar un valor por defecto.",
+      "archivo": "backend/app/core/security.py", "ancla": "SECRET = ", "lineas": 0
+    },
+    {
+      "id": "h-servicios-copiados", "severidad": "baja", "origen": "agente", "categoria": "Integración",
+      "titulo": "El frontend tiene el catálogo de servicios copiado a mano",
+      "explicacion": "Existe GET /api/services, pero NewAppointmentPage usa una lista fija. Si se agrega un servicio o cambia un id, el formulario queda desfasado sin que nadie lo note.",
+      "sugerencia": "Cargar el catálogo desde GET /api/services al montar la pantalla.",
+      "archivo": "frontend/src/pages/NewAppointmentPage.tsx", "ancla": "const SERVICES", "lineas": 4,
+      "endpoint": "GET /api/services"
+    },
+    {
+      "id": "h-me-sin-uso", "severidad": "baja", "origen": "agente", "categoria": "Código muerto",
+      "titulo": "getMe() no se usa en ninguna pantalla",
+      "explicacion": "El cliente la exporta, pero ninguna pantalla la llama. No es un error, pero confunde a quien lee el código.",
+      "sugerencia": "Usarla para mostrar el usuario logueado o borrarla.",
+      "archivo": "frontend/src/api/auth.ts", "simbolo": "getMe",
+      "endpoint": "GET /api/auth/me"
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 # Kit de lanzamiento de Atlify
 
 **Publicación autorizada el 2 de noviembre de 2026.** Repositorio público:
-https://github.com/miguelecf/atlify. La landing se activa en GitHub Pages desde
-`main` y `/docs`. No se publicaron posts en LinkedIn ni se modificó el portfolio.
+https://github.com/miguelecf/atlify. Landing publicada y verificada: https://miguelecf.github.io/atlify/ (GitHub Pages,
+`main` y `/docs`). No se publicaron posts en LinkedIn ni se modificó el portfolio.
 
 La tabla siguiente conserva el estado **anterior** al lanzamiento; los comandos
 son una guía de mantenimiento, no una instrucción para volver a crear el repo.
@@ -213,3 +213,15 @@ en escritorio y móvil emulado. Se mantiene la identidad frontend-personal y se
 ajusta el contenedor a 1180px. Acciones de CI fijadas a SHA verificados en GitHub.
 Sigue pendiente crear el remoto, hacer commit/push autorizado, ejecutar CI remoto y
 activar/verificar Pages. Ninguno de esos pasos se considera realizado por estas pruebas.
+
+
+## Publicación completada — 2 de noviembre de 2026
+
+- Código público: https://github.com/miguelecf/atlify, commit de lanzamiento `5acbe16`.
+- Landing y ambas demos: HTTP 200 y apertura en Chromium público sin errores JS.
+- Portada social: HTTP 200.
+- GitHub Pages: build/deployment aprobado.
+- CI del commit de lanzamiento: Python 3.10 y 3.13, vigencia de demos y navegador aprobados.
+- Clonado desde GitHub e instalación comprobados con HOME temporal; doctor OK.
+- La evidencia de publicación reemplaza los pendientes históricos de las secciones anteriores.
+- No se modificó el portfolio ni se envió el borrador de LinkedIn.

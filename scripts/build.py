@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Genera el visor del atlas: un único HTML offline a partir de atlas.json y del repo.
+"""Generates the atlas viewer: a single offline HTML from atlas.json and the repo.
 
-Valida primero (validate.py), comprime los archivos fuente citados dentro del
-HTML y lo escribe en .atlas/. Con --endpoint deja solo esa ruta y calcula, sobre
-el código real, qué otras rutas y tests pasan por las mismas funciones y tablas.
+It validates first (validate.py), embeds the quoted source files compressed
+into the HTML, and writes it to .atlify/. With --endpoint it keeps only that
+route and computes, over the real code, which other routes and tests pass
+through the same functions and tables.
 
-Uso:
-    python build.py <repo> [--atlas <repo>/.atlas/atlas.json] [-o salida.html]
+Usage:
+    python build.py <repo> [--atlas <repo>/.atlify/atlas.json] [-o output.html]
     python build.py <repo> --endpoint "GET /api/appointments"
 """
 from __future__ import annotations
@@ -23,27 +24,41 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from extract import caminar, es_test  # noqa: E402  # pyright: ignore[reportMissingImports]
-from validate import ep_id, informar, mismo_endpoint, rango_simbolo, recorrer_refs, validar  # noqa: E402  # pyright: ignore[reportMissingImports]
+from validate import (dentro_del_repo, ep_id, informar, mismo_endpoint, rango_simbolo,  # noqa: E402  # pyright: ignore[reportMissingImports]
+                      recorrer_refs, validar)
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
 PLANTILLA = ASSETS / "visor.html"
 VENDOR = ASSETS / "vendor" / "htm-preact-3.1.1.umd.js"
+FUENTES = (("Archivo", "archivo-latin-var.woff2", "100 900", "swap"),
+           ("Archivo Black", "archivo-black-latin.woff2", "400", ""))
 EXT_CODIGO = {".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".java"}
-# nombres demasiado comunes para buscarlos sin el módulo delante (db.get, list.add…)
+# Java method declarations: optional modifiers and return type, name and parens
+RE_METODO_JAVA = re.compile(
+    r"^[ \t]*(?!(?:if|for|while|switch|catch|new|return|else|do|try|throw|assert)\b)"
+    r"(?:@\w+(?:\([^)]*\))?\s+)*"
+    r"(?:(?:public|protected|private|static|final|abstract|synchronized|native|default|strictfp)\s+)*"
+    r"(?:<[^>{};]+>\s+)?"
+    r"[\w$.]+(?:\s*<[^;{}()]*>)?(?:\s*\[\s*\])*\s+(\w+)\s*\([^;{}]*\)\s*"
+    r"(?:throws\s+[\w.,\s<>]+)?\{", re.M)
+# names too common to search without the module in front (db.get, list.add...)
 GENERICOS = {"get", "add", "set", "put", "post", "list", "create", "update", "delete", "remove", "save", "find",
              "run", "main", "init", "load", "fetch", "render", "handle", "query", "send", "close", "open"}
 PROFUNDIDAD = 4
 
 
 class Indice:
-    """Usos de funciones y clases en todo el repo, con la función que contiene cada uso."""
+    """Usages of functions and classes across the repo, with the function containing each usage."""
 
     def __init__(self, raiz: Path):
+        raiz = raiz.resolve()
         self.raiz = raiz
         self.textos: dict[str, list[str]] = {}
         for f in caminar(raiz):
             if f.suffix in EXT_CODIGO and f.stat().st_size < 300_000:
                 rel = f.relative_to(raiz).as_posix()
+                if dentro_del_repo(raiz, rel) is None:
+                    continue
                 self.textos[rel] = f.read_text(encoding="utf-8", errors="replace").splitlines()
         self._funcs: dict[str, list[tuple[str, int, int]]] = {}
 
@@ -59,6 +74,12 @@ class Indice:
                             res.append((n.name, n.lineno, n.end_lineno or n.lineno))
                 except SyntaxError:
                     pass
+            elif archivo.endswith(".java"):
+                for m in RE_METODO_JAVA.finditer(txt):
+                    nombre = m.group(1)
+                    r = rango_simbolo(txt, archivo, nombre)
+                    if r:
+                        res.append((nombre, *r))
             else:
                 for m in re.finditer(r"^[ \t]*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s*\*?\s*(\w+)|"
                                      r"(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>)", txt, re.M):
@@ -76,9 +97,12 @@ class Indice:
     def usos(self, archivo: str, simbolo: str, desde: int, hasta: int, llamada: bool = True) -> list[dict]:
         cola = r"\s*\(" if llamada else r"\b"
         patrones = [rf"\b{re.escape(Path(archivo).stem)}\.{re.escape(simbolo)}{cola}"]
-        # una clase (Pet) es inconfundible aunque sea corta; una función corta solo con el módulo delante
+        # a class (Pet) is unambiguous even when short; a short function only with the module in front
         if simbolo[:1].isupper() or (simbolo not in GENERICOS and len(simbolo) >= 4):
             patrones.append(rf"(?<![\w.]){re.escape(simbolo)}{cola}")
+        if archivo.endswith(".java") and simbolo not in GENERICOS and len(simbolo) >= 3:
+            # in Java it is called through the injected variable: petService.buscar(id)
+            patrones.append(rf"\.{re.escape(simbolo)}\s*\(")
         rx = re.compile("|".join(patrones))
         out = []
         for rel, lineas in self.textos.items():
@@ -94,7 +118,7 @@ class Indice:
 
 
 def manejadores(datos: dict, esqueleto: Path) -> dict[tuple[str, str], str]:
-    """(archivo, función) → endpoint, según el esqueleto y según los pasos del atlas."""
+    """(file, function) -> endpoint, from the skeleton and from the atlas steps."""
     res: dict[tuple[str, str], str] = {}
     if esqueleto.exists():
         sk = json.loads(esqueleto.read_text(encoding="utf-8"))
@@ -113,7 +137,7 @@ def manejadores(datos: dict, esqueleto: Path) -> dict[tuple[str, str], str]:
 
 
 def afectados(idx: Indice, mans: dict, archivo: str, simbolo: str, desde: int, hasta: int, llamada: bool = True):
-    """Usos directos y endpoints alcanzados subiendo por quien llama, hasta PROFUNDIDAD niveles."""
+    """Direct usages and endpoints reached by climbing callers, up to PROFUNDIDAD levels."""
     directos = idx.usos(archivo, simbolo, desde, hasta, llamada)
     endpoints, tests, vistos = set(), set(), set()
     cola = [(u, 1) for u in directos]
@@ -135,13 +159,13 @@ def afectados(idx: Indice, mans: dict, archivo: str, simbolo: str, desde: int, h
 
 
 def enfocar(datos: dict, eid: str, repo_dir: Path, esqueleto: Path) -> dict:
-    """Deja solo un endpoint y agrega el impacto calculado sobre el código real."""
+    """Keeps only one endpoint and adds the blast radius computed over the real code."""
     eps = {ep_id(e): e for e in datos.get("endpoints", [])}
     e = eps[eid]
     idx = Indice(repo_dir)
     mans = manejadores(datos, esqueleto)
     otro = lambda x: not mismo_endpoint(x, eid)  # noqa: E731
-    # nombres del atlas cuando existen (rutas completas), si no los del esqueleto
+    # atlas names when they exist (full routes), otherwise the skeleton's
     nombre = lambda x: next((k for k in eps if mismo_endpoint(k, x)), x)  # noqa: E731
 
     impacto, tests = [], set()
@@ -160,13 +184,14 @@ def enfocar(datos: dict, eid: str, repo_dir: Path, esqueleto: Path) -> dict:
     for t in tablas_d:
         por_atlas = {ep_id(o): sorted({x["op"] for x in o.get("tablas", []) if x["tabla"] == t["nombre"]})
                      for o in eps.values() if o is not e and any(x["tabla"] == t["nombre"] for x in o.get("tablas", []))}
-        _, alcanzados, _ = afectados(idx, mans, t["archivo"], t.get("modelo") or t["simbolo"], t["desde"], t["hasta"], llamada=False)
-        for x in alcanzados:
-            if otro(x):
-                por_atlas.setdefault(nombre(x), [])
+        if t.get("archivo") and (t.get("modelo") or t.get("simbolo")) and t.get("desde"):
+            _, alcanzados, _ = afectados(idx, mans, t["archivo"], t.get("modelo") or t["simbolo"], t["desde"], t["hasta"], llamada=False)
+            for x in alcanzados:
+                if otro(x):
+                    por_atlas.setdefault(nombre(x), [])
         tablas_comp.append({"tabla": t["nombre"], "endpoints": [{"id": k, "ops": v} for k, v in sorted(por_atlas.items())]})
 
-    # tests: los que llaman a la cadena, más los que piden la ruta por HTTP
+    # tests: those calling the chain, plus those requesting the route over HTTP
     ruta = re.sub(r"\{[^}]*\}", "", e["ruta"]).rstrip("/")
     for rel, lineas in idx.textos.items():
         if es_test(rel):
@@ -174,7 +199,7 @@ def enfocar(datos: dict, eid: str, repo_dir: Path, esqueleto: Path) -> dict:
                 if ruta and ruta in ln:
                     f = idx.encierra(rel, i)
                     tests.add((rel, f[0] if f else ""))
-    if e.get("tests") is None:
+    if not e.get("tests"):  # an empty list also means "not written": build discovers them
         e["tests"] = [{"archivo": a, "simbolo": f} for a, f in sorted(tests) if f]
         for t in e["tests"]:
             t["desde"], t["hasta"] = rango_simbolo("\n".join(idx.textos[t["archivo"]]), t["archivo"], t["simbolo"]) or (1, 1)
@@ -183,7 +208,7 @@ def enfocar(datos: dict, eid: str, repo_dir: Path, esqueleto: Path) -> dict:
     rangos = [(r["archivo"], r["desde"], r["hasta"]) for r in refs if r.get("archivo") and r.get("desde")]
     hallazgos = [h for h in datos.get("hallazgos", []) if h.get("endpoint") == eid or any(
         h["archivo"] == a and h["desde"] <= hasta and h["hasta"] >= desde for a, desde, hasta in rangos)]
-    usados = {a for a, _, _ in rangos} | {t["archivo"] for t in tablas_d} | {h["archivo"] for h in hallazgos}
+    usados = {a for a, _, _ in rangos} | {t["archivo"] for t in tablas_d if t.get("archivo")} | {h["archivo"] for h in hallazgos}
     return {
         **{k: datos[k] for k in ("proyecto", "naciones") if k in datos},
         "archivos": {k: v for k, v in datos.get("archivos", {}).items() if k in usados},
@@ -200,55 +225,71 @@ def slug(eid: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", eid.lower()).strip("-")
 
 
+def css_fuentes() -> str:
+    """@font-face with vendored fonts in base64, so the HTML works offline."""
+    bloques = []
+    for familia, archivo, peso, display in FUENTES:
+        p = ASSETS / "vendor" / "fonts" / archivo
+        if not p.is_file():
+            continue
+        b64 = base64.b64encode(p.read_bytes()).decode("ascii")
+        extra = f";font-display:{display}" if display else ""
+        bloques.append(f"@font-face{{font-family:'{familia}';font-weight:{peso};font-style:normal{extra};"
+                       f"src:url(data:font/woff2;base64,{b64}) format('woff2')}}")
+    return "\n".join(bloques)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("repo", type=Path)
-    ap.add_argument("--atlas", type=Path, help="default: <repo>/.atlas/atlas.json")
-    ap.add_argument("--esqueleto", type=Path, help="default: skeleton.json junto a atlas.json")
-    ap.add_argument("--endpoint", help='genera solo esa ruta, p. ej. "POST /api/appointments"')
-    ap.add_argument("-o", "--salida", type=Path)
+    ap.add_argument("--atlas", type=Path, help="default: <repo>/.atlify/atlas.json")
+    ap.add_argument("--skeleton", dest="esqueleto", type=Path, help="default: skeleton.json next to atlas.json")
+    ap.add_argument("--endpoint", help='generate only that route, e.g. "POST /api/appointments"; matched by suffix')
+    ap.add_argument("-o", "--out", dest="salida", type=Path)
     args = ap.parse_args()
 
-    atlas = args.atlas or args.repo / ".atlas" / "atlas.json"
-    datos, repo = validar(args.repo, atlas, args.endpoint)
+    atlas = args.atlas or args.repo / ".atlify" / "atlas.json"
+    datos, repo, eid = validar(args.repo, atlas, args.endpoint)
     if repo.errores or datos is None:
         informar(repo)
-        sys.exit("No genero el visor hasta que validate.py dé 0 errores.")
+        sys.exit("The viewer is not generated until validate.py reports 0 errors.")
     if repo.avisos:
-        print(f"{len(repo.avisos)} avisos de validación (corré validate.py para verlos).")
+        print(f"{len(repo.avisos)} validation warnings (run atlify.py validate to see them).")
 
     if args.endpoint:
-        datos = enfocar(datos, args.endpoint, repo.raiz, args.esqueleto or atlas.parent / "skeleton.json")
+        datos = enfocar(datos, eid, repo.raiz, args.esqueleto or atlas.parent / "skeleton.json")
     usados = set(datos.get("archivos", {})) | {r["archivo"] for r, _ in recorrer_refs(datos) if r.get("archivo")}
     fuentes = {k: repo.texto(k) for k in sorted(usados) if repo.texto(k) is not None}
 
     crudo = json.dumps(fuentes, ensure_ascii=False).encode("utf-8")
-    datos["fuentesGz"] = base64.b64encode(gzip.compress(crudo, 9)).decode("ascii")
+    # No wall-clock timestamp in the payload: identical input produces identical HTML.
+    datos["fuentesGz"] = base64.b64encode(gzip.compress(crudo, 9, mtime=0)).decode("ascii")
     payload = json.dumps(datos, ensure_ascii=False).replace("<", "\\u003c")
 
     vendor = VENDOR.read_text(encoding="utf-8")
     if "</script" in vendor.lower():
-        sys.exit(f"{VENDOR} contiene </script y rompería el HTML")
+        sys.exit(f"{VENDOR} contains </script and would break the HTML")
     html = PLANTILLA.read_text(encoding="utf-8")
     for marca in ("/*__VENDOR__*/", "__ATLAS_DATOS__", "<title>Atlas del código</title>"):
         if html.count(marca) != 1:
-            sys.exit(f"La plantilla {PLANTILLA} debe tener exactamente una vez: {marca}")
+            sys.exit(f"The template {PLANTILLA} must contain exactly once: {marca}")
     nombre = datos.get("proyecto", {}).get("nombre") or repo.raiz.name
-    titulo = f"Atlas {nombre}" + (f" {args.endpoint}" if args.endpoint else "")
+    titulo = f"Atlify · {nombre}" + (f" · {eid}" if args.endpoint else "")
     html = (html.replace("/*__VENDOR__*/", vendor).replace("__ATLAS_DATOS__", payload)
+            .replace("/*__FONTS__*/", css_fuentes())
             .replace("<title>Atlas del código</title>", f"<title>{escape(titulo)}</title>"))
 
-    salida = args.salida or atlas.parent / (f"atlas-{slug(args.endpoint)}.html" if args.endpoint else "atlas.html")
+    salida = args.salida or atlas.parent / (f"atlas-{slug(eid)}.html" if args.endpoint else "atlas.html")
     salida.parent.mkdir(parents=True, exist_ok=True)
     salida.write_text(html, encoding="utf-8")
-    print(f"Atlas: {salida}  ({salida.stat().st_size // 1024} KB, {len(fuentes)} archivos fuente)")
+    print(f"Atlify: {salida}  ({salida.stat().st_size // 1024} KB, {len(fuentes)} source files)")
     if args.endpoint:
         f = datos["foco"]
         compartidas = [i for i in f["impacto"] if i["endpoints"]]
-        print(f"Foco {args.endpoint}: {len(f['impacto'])} funciones en la cadena, {len(compartidas)} compartidas con otras rutas, "
-              f"{len(datos['endpoints'][0]['tests'])} tests, {len(datos['hallazgos'])} hallazgos en el camino.")
+        print(f"Focus {eid}: {len(f['impacto'])} functions in the chain, {len(compartidas)} shared with other routes, "
+              f"{len(datos['endpoints'][0]['tests'])} tests, {len(datos['hallazgos'])} findings on the path.")
         for i in compartidas:
-            print(f"  {i['simbolo']}() también la alcanzan: {', '.join(i['endpoints'])}")
+            print(f"  {i['simbolo']}() is also reached by: {', '.join(i['endpoints'])}")
 
 
 if __name__ == "__main__":

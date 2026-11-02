@@ -1,21 +1,21 @@
-# Convenciones de atlas.json
+# atlas.json conventions
 
-`atlas.json` es lo único que escribís. Nunca pongas código adentro: el código se cita con una referencia y `build.py` copia las líneas reales del repo.
+`atlas.json` is the only thing you write. Never put code inside it: code is cited with a reference, and `build.py` copies the real lines from the repo.
 
-El ejemplo completo y válido es `evals/fixtures/pet-care-api/atlas.json`. Copiá su forma.
+The complete, valid example is `evals/fixtures/pet-care-api/atlas.json`. Copy its shape (structure and depth, not its language).
 
-## Referencias a código
+## Code references
 
-Toda referencia lleva `archivo` (ruta relativa al repo) y una de estas dos formas de ubicar el código:
+Every reference carries `archivo` (path relative to the repo) and one of these two ways to locate the code:
 
-| Forma | Cuándo | Ejemplo |
+| Form | When | Example |
 |---|---|---|
-| `simbolo` | Una función, método o clase. Es la preferida: si el código se mueve de línea, sigue funcionando. | `{ "archivo": "backend/app/routers/pets.py", "simbolo": "get_pet" }` |
-| `ancla` + `lineas` | Algo que no es una función: una constante, un `useEffect`, una línea de config. `lineas` es cuántas líneas tomar después de la del ancla (0 = solo esa). | `{ "archivo": "frontend/src/pages/PetsPage.tsx", "ancla": "listPets().then", "lineas": 1 }` |
+| `simbolo` | A function, method or class. The preferred form: if the code moves lines, it still works. | `{ "archivo": "backend/app/routers/pets.py", "simbolo": "get_pet" }` |
+| `ancla` + `lineas` | Something that is not a function: a constant, a `useEffect`, a config line. `lineas` is how many lines to take after the anchor's line (0 = just that one). | `{ "archivo": "frontend/src/pages/PetsPage.tsx", "ancla": "listPets().then", "lineas": 1 }` |
 
-No uses `desde`/`hasta` fijos: se desfasan con el primer cambio, y `validate.py` lo marca como aviso.
+Do not use fixed `desde`/`hasta`: they drift with the first change, and `validate.py` flags them as a warning.
 
-## Esquema
+## Schema
 
 ```text
 proyecto      nombre*, resumen, porque, rama, stack[{nombre, nacion}]
@@ -23,66 +23,67 @@ naciones[]    id* (frontend | backend | db), nombre, tipo, dir, resumen
 archivos{}    "<ruta>": { nacion*, capa, rol }
 endpoints[]   metodo*, ruta*, resumen*, tablas*[{tabla, op}], pasos*[], etiqueta, auth,
               explicacion, entrada (ref), respuestas[{codigo, desc}], frontend[ref], tests[ref]
-  pasos[]     accion* + ref (código)  ó  accion* + tabla + op (base de datos); explicacion, pregunta
-tablas[]      nombre*, modelo, ref del modelo, resumen, campos[{nombre, tipo, clave (pk|fk), ref, unico, sensible, desc}]
+  pasos[]     accion* + ref (code)  or  accion* + tabla + op (database); explicacion, pregunta
+tablas[]      nombre*, modelo, ref of the model, resumen, campos[{nombre, tipo, clave (pk|fk), ref, unico, sensible, desc}]
+              (in campos, `ref` is the FK destination as "table.field", e.g. "users.id"; it is not a code reference)
 hallazgos[]   id*, severidad* (alta|media|baja), origen* (script|agente), categoria, titulo*,
               explicacion*, sugerencia*, ref*, endpoint, tabla
 llamadas_rotas[]  metodo, ruta, ref, usadoEn[ref], coincide_con, hallazgo
 ```
 
-`*` = obligatorio. `validate.py` rechaza claves que no estén acá: casi siempre es un error de tipeo.
+`*` = required. `validate.py` rejects keys that are not in this list: it is almost always a typo.
 
-Valores de `capa`: `pagina`, `cliente-api`, `rutas`, `router`, `service`, `repository`, `modelo`, `schema`, `seguridad`, `config`, `aplicacion`. Valores de `op`: `SELECT`, `INSERT`, `UPDATE`, `DELETE`.
+`capa` values: `pagina`, `cliente-api`, `rutas`, `router`, `service`, `repository`, `modelo`, `schema`, `seguridad`, `config`, `aplicacion`. `op` values: `SELECT`, `INSERT`, `UPDATE`, `DELETE`.
 
-## Un recorrido (`pasos`)
+## A walkthrough (`pasos`)
 
-- Va del gesto del usuario a la base: pantalla → cliente API → router → service → repository → tabla. Entre 3 y 8 pasos.
-- `accion` es lo que se ve en la caja: verbo y objeto, de 2 a 5 palabras, o el endpoint (`POST /api/appointments`).
-- `explicacion`: qué pasa en este paso y **por qué así**, en 1 a 3 frases.
-- `pregunta`: solo donde hay algo para razonar, como máximo en 1 de cada 3 pasos, y que no se responda con sí o no.
-- El último paso es la tabla, con su `op`.
+- It goes from the user's gesture to the database: screen → API client → router → service → repository → table. Between 3 and 8 steps.
+- `accion` is what shows in the box: verb and object, 2 to 5 words, or the endpoint (`POST /api/appointments`).
+- `explicacion`: what happens in this step and **why that way**, in 1 to 3 sentences.
+- `pregunta`: only where there is something to reason about, at most in 1 of every 3 steps, and not answerable with yes or no.
+- The last step is the table, with its `op`.
 
-## Textos
+## Texts
 
-| Campo | Regla |
+| Field | Rule |
 |---|---|
-| `resumen` | Qué hace, en 1 frase. Sin "Este endpoint se encarga de…". |
-| `explicacion` | El mecanismo y la decisión. "Delega en el service" no aporta; "El router solo traduce SlotTaken a 409: la regla vive en el service y se testea sin HTTP" sí. |
-| `rol` (archivo) | Para qué existe el archivo, en una línea. |
-| `porque` | La decisión y su costo. Si no hay decisión interesante, omitilo. Nunca lo inventes. |
-| hallazgo `titulo` | La consecuencia para el usuario o el sistema, no el nombre técnico: "Cualquiera puede cancelar cualquier turno", no "Falta auth en DELETE". |
-| hallazgo `explicacion` | Cómo se produce, con el escenario concreto (quién hace qué y qué pasa). |
-| hallazgo `sugerencia` | El arreglo mínimo, nombrando la función o el archivo donde va. |
+| `resumen` | What it does, in 1 sentence. No "This endpoint is in charge of…". |
+| `explicacion` | The mechanism and the decision. "It delegates to the service" adds nothing; "The router only maps SlotTaken to 409: the rule lives in the service and is tested without HTTP" does. |
+| `rol` (file) | Why the file exists, in one line. |
+| `porque` | The decision and its cost. If there is no interesting decision, omit it. Never invent it. |
+| finding `titulo` | The consequence for the user or the system, not the technical name: "Anyone can cancel any appointment", not "Missing auth on DELETE". |
+| finding `explicacion` | How it happens, with the concrete scenario (who does what and what follows). |
+| finding `sugerencia` | The minimal fix, naming the function or file where it goes. |
 
-Español, directo, sin relleno. Identificadores, rutas y código, tal cual.
+Direct, no filler. Identifiers, paths and code, exactly as they are.
 
-## Qué buscar
+## What to look for
 
-Recorré cada endpoint con estas preguntas. Cada respuesta afirmativa, confirmada en el código, es un hallazgo.
+Walk every endpoint with these questions. Every affirmative answer, confirmed in the code, is a finding.
 
-**Seguridad**
-- ¿El endpoint exige sesión? ¿Debería? Mirá especialmente los que modifican datos.
-- ¿Verifica que el recurso sea del usuario, o alcanza con cambiar el id en la URL (IDOR)?
-- ¿Devuelve entidades de la base tal cual, sin schema de salida? ¿Viaja algún campo sensible (hash, token, email ajeno)?
-- ¿Hay secretos con valor por defecto o escritos en el código?
+**Security**
+- Does the endpoint require a session? Should it? Look hard at the ones that modify data.
+- Does it verify the resource belongs to the user, or is changing the id in the URL enough (IDOR)?
+- Does it return database entities as-is, with no output schema? Does any sensitive field travel (hash, token, someone else's email)?
+- Are there secrets with a default value or written in the code?
 
-**Datos**
-- ¿Hay "consultar y después escribir" sin una restricción en la base que lo respalde (condición de carrera)?
-- ¿Las reglas de negocio están en la base (UNIQUE, FK, CHECK) o solo en el código?
-- ¿Se borra lo que debería conservarse (historial), o al revés?
+**Data**
+- Is there a "read then write" with no database constraint backing it (race condition)?
+- Are the business rules in the database (UNIQUE, FK, CHECK) or only in the code?
+- Is something deleted that should be kept (history), or the other way around?
 
-**Errores**
-- ¿Qué excepciones puede lanzar el recorrido y cuáles se traducen a un código HTTP? Las que no, terminan en 500.
-- ¿El frontend distingue los errores, o muestra el mismo mensaje para todo?
+**Errors**
+- Which exceptions can the walkthrough throw, and which ones are mapped to an HTTP code? The rest end up as 500.
+- Does the frontend tell errors apart, or show the same message for everything?
 
-**Rendimiento**
-- ¿Hay consultas dentro de bucles, o relaciones cargadas una por una (N+1)? Contá las consultas para un caso realista.
-- ¿Se trae una lista entera para contarla o filtrarla en memoria?
+**Performance**
+- Queries inside loops, or relations loaded one by one (N+1)? Count the queries for a realistic case.
+- Is a whole list fetched just to count or filter it in memory?
 
-**Diseño e integración**
-- ¿Hay reglas de negocio en el router o en la pantalla, en lugar del service?
-- ¿El frontend tiene datos copiados a mano que el backend ya expone?
-- ¿Hay llamadas a rutas que no existen o endpoints que nadie usa? (PARA REVISAR ya te da candidatos.)
-- ¿Hay funciones exportadas que nadie importa?
+**Design and integration**
+- Business rules in the router or the screen, instead of the service?
+- Does the frontend have data copied by hand that the backend already exposes?
+- Calls to routes that do not exist, or endpoints nobody uses? (TO REVIEW already gives candidates.)
+- Exported functions nobody imports?
 
-No conviertas en hallazgo una preferencia de estilo. Si dudás, que sea una `pregunta` en el paso.
+Do not turn a style preference into a finding. When in doubt, make it a `pregunta` in the step.

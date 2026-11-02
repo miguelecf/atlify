@@ -1,75 +1,75 @@
-# Ejemplos
+# Examples
 
-El atlas completo de referencia es `evals/fixtures/pet-care-api/atlas.json`, sobre el repo de `evals/fixtures/pet-care-api/repo/`. Acá van fragmentos comentados para calibrar.
+The complete reference atlas is `evals/fixtures/pet-care-api/atlas.json`, over the repo in `evals/fixtures/pet-care-api/repo/`. Here are commented fragments to calibrate.
 
-## Un paso
+## One step
 
-Flojo: repite lo que dice el código.
-
-```json
-{ "archivo": "backend/app/routers/appointments.py", "simbolo": "create_appointment",
-  "accion": "Crea el turno", "explicacion": "Este endpoint crea un turno llamando al service." }
-```
-
-Bien: explica el mecanismo y la decisión.
+Weak: repeats what the code says.
 
 ```json
 { "archivo": "backend/app/routers/appointments.py", "simbolo": "create_appointment",
-  "accion": "Valida y delega",
-  "explicacion": "FastAPI valida el body contra AppointmentCreate (si falta un campo, devuelve 422 sin ejecutar nada). El router solo traduce SlotTaken a 409.",
-  "pregunta": "¿Por qué conviene que el router no sepa cómo se decide si un horario está ocupado?" }
+  "accion": "Creates the appointment", "explicacion": "This endpoint creates an appointment by calling the service." }
 ```
 
-## Un hallazgo
-
-Flojo: sin escenario, sin ubicación precisa y sin arreglo.
+Good: explains the mechanism and the decision.
 
 ```json
-{ "id": "auth", "severidad": "alta", "origen": "agente", "titulo": "Problema de seguridad en DELETE",
-  "explicacion": "Falta autenticación.", "sugerencia": "Agregar auth.", "archivo": "backend/app/routers/appointments.py" }
+{ "archivo": "backend/app/routers/appointments.py", "simbolo": "create_appointment",
+  "accion": "Validates and delegates",
+  "explicacion": "FastAPI validates the body against AppointmentCreate (if a field is missing, it returns 422 without running anything). The router only maps SlotTaken to 409.",
+  "pregunta": "Why is it better for the router not to know how an occupied slot is decided?" }
 ```
 
-Bien: título con la consecuencia, escenario concreto y arreglo mínimo en su lugar.
+## One finding
+
+Weak: no scenario, no precise location, no fix.
+
+```json
+{ "id": "auth", "severidad": "alta", "origen": "agente", "titulo": "Security problem on DELETE",
+  "explicacion": "Missing authentication.", "sugerencia": "Add auth.", "archivo": "backend/app/routers/appointments.py" }
+```
+
+Good: a title with the consequence, a concrete scenario, and the minimal fix where it belongs.
 
 ```json
 {
   "id": "h-delete-sin-auth", "severidad": "alta", "origen": "agente", "categoria": "Seguridad",
-  "titulo": "Cualquiera puede cancelar cualquier turno",
-  "explicacion": "DELETE /api/appointments/{id} no exige sesión ni comprueba que el turno sea del usuario. Alguien sin cuenta puede cancelar todos los turnos probando ids del 1 en adelante.",
-  "sugerencia": "Agregar user: User = Depends(get_current_user) en el router y, en el service, verificar que a.pet.owner_id == user.id antes de cancelar.",
+  "titulo": "Anyone can cancel any appointment",
+  "explicacion": "DELETE /api/appointments/{id} requires no session and never checks that the appointment belongs to the user. Someone with no account can cancel every appointment by trying ids from 1 up.",
+  "sugerencia": "Add user: User = Depends(get_current_user) in the router and, in the service, verify a.pet.owner_id == user.id before cancelling.",
   "archivo": "backend/app/routers/appointments.py", "simbolo": "cancel_appointment",
   "endpoint": "DELETE /api/appointments/{appointment_id}"
 }
 ```
 
-## Hallazgos que solo aparecen leyendo con criterio
+## Findings that only appear reading with judgment
 
-En el fixture, el script encuentra 3 cosas (la búsqueda rota y 2 endpoints sin uso). Las demás requieren seguir el recorrido:
+In the fixture, the script finds 3 things (the broken search and 2 unused endpoints). The rest requires following the walkthrough:
 
-| Hallazgo | Cómo se encuentra |
+| Finding | How it is found |
 |---|---|
-| N+1 al listar turnos | Contar consultas: un bucle de mascotas, una consulta de turnos por mascota y `a.pet`/`a.service` cargados uno por uno en `_to_out`. |
-| Reserva duplicada por carrera | `exists_at` y después `add`, sin UNIQUE en `appointments`. Mirar el modelo para confirmar que falta la restricción. |
-| Error 500 con mascota ajena | `book` lanza `PermissionError` y el router solo atrapa `SlotTaken`. |
-| Hash de la contraseña expuesto | `get_pet` devuelve `pet.owner` sin `response_model`, y `User` tiene `password_hash`. |
-| Catálogo copiado en el frontend | `GET /api/services` existe y nadie lo usa, y `NewAppointmentPage` tiene `SERVICES` fijo. Son dos hechos que solo juntos explican el problema. |
+| N+1 when listing appointments | Counting queries: a loop over pets, one appointment query per pet, and `a.pet`/`a.service` loaded one by one in `_to_out`. |
+| Double booking by race | `exists_at` and then `add`, with no UNIQUE on `appointments`. Check the model to confirm the constraint is missing. |
+| 500 with someone else's pet | `book` raises `PermissionError` and the router only catches `SlotTaken`. |
+| Password hash exposed | `get_pet` returns `pet.owner` with no `response_model`, and `User` has `password_hash`. |
+| Catalog copied in the frontend | `GET /api/services` exists and nobody uses it, and `NewAppointmentPage` has a hardcoded `SERVICES`. Two facts that only together explain the problem. |
 
-## Una sospecha que no es hallazgo
+## A suspicion that is not a finding
 
-Si `duration_min` existe pero nadie lo usa para evitar turnos superpuestos, no lo afirmes como bug sin saber la regla del negocio. Va como pregunta:
+If `duration_min` exists but nothing uses it to avoid overlapping appointments, do not claim it as a bug without knowing the business rule. It goes as a question:
 
 ```json
-"pregunta": "duration_min no se usa al reservar: ¿dos turnos de 60 minutos pueden empezar con 30 minutos de diferencia?"
+"pregunta": "duration_min is not used when booking: can two 60-minute appointments start 30 minutes apart?"
 ```
 
-## Reporte final
+## Final report
 
 ```text
-Atlas: .atlas/atlas.html
-Cubre 9 de 9 endpoints y 4 tablas.
-Hallazgos: 4 altos, 5 medios, 2 bajos. Los más graves:
-- Cualquiera puede cancelar cualquier turno (appointments.py: cancel_appointment)
-- La búsqueda de mascotas llama a una ruta que no existe (pets.ts: searchPets)
-- El detalle de mascota devuelve el hash de la contraseña del dueño (pets.py: get_pet)
-Sin explicar: App.tsx (solo rutas). Sugerencia: agregá .atlas/ al .gitignore o versioná solo atlas.json.
+Atlify: .atlify/atlas.html
+Covers 9 of 9 endpoints and 4 tables.
+Findings: 4 high, 5 medium, 2 low. The most severe:
+- Anyone can cancel any appointment (appointments.py: cancel_appointment)
+- The pet search calls a route that does not exist (pets.ts: searchPets)
+- The pet detail returns the owner's password hash (pets.py: get_pet)
+Unexplained: App.tsx (routes only). Suggestion: add .atlify/ to .gitignore or version only atlas.json.
 ```

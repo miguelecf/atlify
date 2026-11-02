@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Valida .atlas/atlas.json contra el repo real.
+"""Validates .atlify/atlas.json against the real repo.
 
-Resuelve cada referencia a código ("simbolo" o "ancla") a líneas reales,
-detecta claves mal escritas, referencias cruzadas rotas y archivos sensibles,
-y compara la cobertura con el esqueleto de extract.py si existe.
+Resolves every code reference ("simbolo" or "ancla") to real lines, detects
+misspelled keys, broken cross-references and sensitive files, and compares
+coverage with the extract.py skeleton when it exists.
 
-Uso:
-    python validate.py <repo> [--atlas <repo>/.atlas/atlas.json] [--endpoint "GET /api/x"]
+Usage:
+    python validate.py <repo> [--atlas <repo>/.atlify/atlas.json] [--endpoint "GET /api/x"]
 
-Sale con código 0 si no hay errores. Los avisos no bloquean.
+Exits with code 0 when there are no errors. Warnings do not block.
 """
 from __future__ import annotations
 
@@ -41,8 +41,23 @@ CLAVES = {
 }
 
 
+def dentro_del_repo(raiz: Path, archivo: str) -> Path | None:
+    """Real path of the file if it stays inside the repo; None if absolute, uses .. or escapes through a symlink."""
+    if not isinstance(archivo, str) or not archivo:
+        return None
+    rel = Path(archivo)
+    if rel.is_absolute() or ".." in rel.parts:
+        return None
+    try:
+        raiz_real = raiz.resolve()
+        destino = (raiz_real / rel).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return destino if destino.is_relative_to(raiz_real) else None
+
+
 class Repo:
-    """Lee archivos del repo una sola vez y resuelve referencias a líneas."""
+    """Reads repo files once and resolves references to lines."""
 
     def __init__(self, raiz: Path):
         self.raiz = raiz
@@ -52,8 +67,8 @@ class Repo:
 
     def texto(self, archivo: str) -> str | None:
         if archivo not in self.textos:
-            p = self.raiz / archivo
-            if not p.is_file() or p.stat().st_size > MAX_BYTES:
+            p = dentro_del_repo(self.raiz, archivo)
+            if p is None or not p.is_file() or p.stat().st_size > MAX_BYTES:
                 return None
             self.textos[archivo] = p.read_text(encoding="utf-8", errors="replace")
         return self.textos[archivo]
@@ -62,36 +77,53 @@ class Repo:
         archivo = ref.get("archivo")
         if not archivo:
             return
+        if not isinstance(archivo, str):
+            self.errores.append(f"{ctx}: 'archivo' must be a string")
+            return
+        if dentro_del_repo(self.raiz, archivo) is None:
+            self.errores.append(f"{ctx}: {archivo} is outside the repo")
+            return
         if SENSIBLES.search(archivo):
-            self.errores.append(f"{ctx}: {archivo} parece contener secretos; no se puede citar en el atlas")
+            self.errores.append(f"{ctx}: {archivo} may contain secrets; it cannot be quoted in the atlas")
             return
         txt = self.texto(archivo)
         if txt is None:
-            self.errores.append(f"{ctx}: no existe el archivo {archivo} (o pesa más de {MAX_BYTES // 1000} KB)")
+            self.errores.append(f"{ctx}: file {archivo} does not exist (or is larger than {MAX_BYTES // 1000} KB)")
             return
         if ref.get("desde"):
             ref.setdefault("hasta", ref["desde"])
-            self.avisos.append(f"{ctx}: usa desde/hasta fijos; preferí simbolo o ancla para que no se desfase")
+            self.avisos.append(f"{ctx}: uses fixed desde/hasta; prefer simbolo or ancla so it does not drift")
             return
         rango = None
         if ref.get("simbolo"):
+            if not isinstance(ref["simbolo"], str):
+                self.errores.append(f"{ctx}: 'simbolo' must be a string")
+                return
             rango = rango_simbolo(txt, archivo, ref["simbolo"])
             if not rango:
-                self.errores.append(f"{ctx}: no encuentro '{ref['simbolo']}' en {archivo} (¿se renombró?)")
+                self.errores.append(f"{ctx}: cannot find '{ref['simbolo']}' in {archivo} (was it renamed?)")
         elif ref.get("ancla"):
+            if not isinstance(ref["ancla"], str):
+                self.errores.append(f"{ctx}: 'ancla' must be a string")
+                return
             i = next((n for n, ln in enumerate(txt.splitlines(), 1) if ref["ancla"] in ln), None)
             if i is None:
-                self.errores.append(f"{ctx}: no encuentro el texto '{ref['ancla']}' en {archivo}")
+                self.errores.append(f"{ctx}: cannot find the text '{ref['ancla']}' in {archivo}")
             else:
-                rango = (i, i + int(ref.get("lineas", 0)))
+                try:
+                    lineas = int(ref.get("lineas", 0))
+                except (TypeError, ValueError):
+                    self.errores.append(f"{ctx}: 'lineas' must be a number")
+                    return
+                rango = (i, i + lineas)
         else:
-            self.errores.append(f"{ctx}: falta 'simbolo' o 'ancla' para ubicar el código en {archivo}")
+            self.errores.append(f"{ctx}: missing 'simbolo' or 'ancla' to locate the code in {archivo}")
         if rango:
             ref["desde"], ref["hasta"] = rango
 
 
 def rango_simbolo(txt: str, archivo: str, nombre: str) -> tuple[int, int] | None:
-    """Líneas de una función o clase: ast en Python, llaves balanceadas en el resto."""
+    """Lines of a function or class: ast in Python, balanced braces elsewhere."""
     if archivo.endswith(".py"):
         try:
             arbol = ast.parse(txt)
@@ -102,9 +134,14 @@ def rango_simbolo(txt: str, archivo: str, nombre: str) -> tuple[int, int] | None
                 inicio = min([n.lineno] + [d.lineno for d in n.decorator_list])
                 return inicio, n.end_lineno or n.lineno
         return None
-    m = re.search(rf"^[ \t]*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s*\*?\s*{re.escape(nombre)}\b|"
-                  rf"class\s+{re.escape(nombre)}\b|(?:const|let|var)\s+{re.escape(nombre)}\s*[=:]|"
-                  rf"(?:(?:public|private|protected|static|final|async)\s+)*[\w<>\[\],.? ]+\s+{re.escape(nombre)}\s*\([^;]*$)",
+    nombre_rx = re.escape(nombre)
+    java = (r"(?:@\w+(?:\([^)]*\))?\s+)*"
+            r"(?:(?:public|private|protected|static|final|abstract|synchronized|native|default|strictfp)\s+)*"
+            r"(?:<[^>{};]+>\s+)?"
+            r"[\w$.]+(?:\s*<[^;{}()]*>)?(?:\s*\[\s*\])*\s+"
+            rf"{nombre_rx}\s*\([^;]*$")
+    m = re.search(rf"^[ \t]*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s*\*?\s*{nombre_rx}\b|"
+                  rf"class\s+{nombre_rx}\b|(?:const|let|var)\s+{nombre_rx}\s*[=:]|{java})",
                   txt, re.M)
     if not m:
         return None
@@ -138,7 +175,7 @@ def ep_id(e: dict) -> str:
 
 
 def recorrer_refs(datos: dict):
-    """Todas las referencias a código del atlas, con un contexto legible para los mensajes."""
+    """Every code reference in the atlas, with a readable context for messages."""
     for e in datos.get("endpoints", []):
         eid = ep_id(e)
         if e.get("entrada"):
@@ -159,14 +196,53 @@ def recorrer_refs(datos: dict):
             yield u, f"llamada rota {r.get('ruta')} usadoEn[{j}]"
 
 
+def lista_de_objetos(valor) -> bool:
+    return isinstance(valor, list) and all(isinstance(x, dict) for x in valor)
+
+
+def normalizar_forma(datos: dict, errores: list[str]) -> None:
+    """Leaves the collections traversable; one that is not a list of objects is emptied and reported."""
+    if not isinstance(datos.get("proyecto", {}), dict):
+        errores.append("proyecto: expected an object")
+        datos["proyecto"] = {}
+    if not isinstance(datos.get("archivos", {}), dict):
+        errores.append("archivos: expected an object (path -> {nacion, capa, rol})")
+        datos["archivos"] = {}
+    for k, v in list(datos.get("archivos", {}).items()):
+        if not isinstance(v, dict):
+            errores.append(f"archivos[{k}]: expected an object")
+            datos["archivos"][k] = {}
+    for clave in ("naciones", "endpoints", "tablas", "hallazgos", "llamadas_rotas"):
+        if not lista_de_objetos(datos.get(clave, [])):
+            errores.append(f"{clave}: expected a list of objects")
+            datos[clave] = []
+    for e in datos.get("endpoints", []):
+        eid = ep_id(e)
+        for clave in ("pasos", "frontend", "tests", "tablas"):
+            if clave in e and not lista_de_objetos(e[clave]):
+                errores.append(f"{eid}: '{clave}' must be a list of objects")
+                e[clave] = []
+        if e.get("entrada") is not None and not isinstance(e["entrada"], dict):
+            errores.append(f"{eid}: 'entrada' must be an object")
+            e.pop("entrada", None)
+    for t in datos.get("tablas", []):
+        if "campos" in t and not lista_de_objetos(t["campos"]):
+            errores.append(f"tabla {t.get('nombre')}: 'campos' must be a list of objects")
+            t["campos"] = []
+    for r in datos.get("llamadas_rotas", []):
+        if "usadoEn" in r and not lista_de_objetos(r["usadoEn"]):
+            errores.append(f"llamada rota {r.get('ruta')}: 'usadoEn' must be a list of objects")
+            r["usadoEn"] = []
+
+
 def revisar_claves(datos: dict, errores: list[str]) -> None:
     def chk(obj, tipo, ctx):
         if not isinstance(obj, dict):
-            errores.append(f"{ctx}: se esperaba un objeto")
+            errores.append(f"{ctx}: expected an object")
             return
         sobran = set(obj) - CLAVES[tipo]
         if sobran:
-            errores.append(f"{ctx}: claves desconocidas {sorted(sobran)} (permitidas: {sorted(CLAVES[tipo])})")
+            errores.append(f"{ctx}: unknown keys {sorted(sobran)} (allowed: {sorted(CLAVES[tipo])})")
 
     chk(datos, "raiz", "atlas.json")
     chk(datos.get("proyecto", {}), "proyecto", "proyecto")
@@ -198,48 +274,48 @@ def revisar_contenido(datos: dict, repo: Repo, solo_endpoint: str | None) -> Non
     naciones = {n.get("id") for n in datos.get("naciones", [])} | {"infra"}
 
     if not datos.get("proyecto", {}).get("nombre"):
-        err.append("proyecto.nombre es obligatorio")
-    if solo_endpoint and solo_endpoint not in eps:
-        err.append(f"--endpoint {solo_endpoint!r} no está en atlas.json")
+        err.append("proyecto.nombre is required")
     for k, v in datos.get("archivos", {}).items():
         if v.get("nacion") not in naciones:
-            err.append(f"archivos[{k}]: nación desconocida {v.get('nacion')!r}")
+            err.append(f"archivos[{k}]: unknown nacion {v.get('nacion')!r}")
     for eid, e in eps.items():
         if not e.get("resumen"):
-            err.append(f"{eid}: falta resumen")
+            err.append(f"{eid}: missing resumen")
         if not any(p.get("archivo") for p in e.get("pasos", [])):
-            err.append(f"{eid}: el recorrido no tiene ningún paso con código")
+            err.append(f"{eid}: the walkthrough has no step with code")
         if "tablas" not in e:
-            err.append(f"{eid}: falta 'tablas' (usá [] si no toca la base)")
+            err.append(f"{eid}: missing 'tablas' (use [] if the endpoint never touches the database)")
         for t in e.get("tablas", []):
             if t.get("tabla") not in tablas:
-                err.append(f"{eid}: tabla inexistente {t.get('tabla')}")
+                err.append(f"{eid}: nonexistent tabla {t.get('tabla')}")
         for p in e.get("pasos", []):
             if p.get("tabla") and p["tabla"] not in tablas:
-                err.append(f"{eid}: paso con tabla inexistente {p['tabla']}")
+                err.append(f"{eid}: step with nonexistent tabla {p['tabla']}")
             if not p.get("accion"):
-                err.append(f"{eid}: hay un paso sin 'accion'")
+                err.append(f"{eid}: a step is missing 'accion'")
     for h in datos.get("hallazgos", []):
         hid = h.get("id")
         if hall_ids.count(hid) > 1:
-            err.append(f"hallazgo {hid}: id repetido")
+            err.append(f"hallazgo {hid}: duplicate id")
         if h.get("severidad") not in SEVERIDADES:
-            err.append(f"hallazgo {hid}: severidad debe ser una de {SEVERIDADES}")
+            err.append(f"hallazgo {hid}: severidad must be one of {SEVERIDADES}")
         if h.get("origen") not in ORIGENES:
-            err.append(f"hallazgo {hid}: origen debe ser una de {ORIGENES}")
+            err.append(f"hallazgo {hid}: origen must be one of {ORIGENES}")
         for k in ("titulo", "explicacion", "sugerencia", "archivo"):
             if not h.get(k):
-                err.append(f"hallazgo {hid}: falta '{k}'")
+                err.append(f"hallazgo {hid}: missing '{k}'")
         if h.get("endpoint") and h["endpoint"] not in eps and not solo_endpoint:
-            err.append(f"hallazgo {hid}: endpoint inexistente {h['endpoint']}")
+            err.append(f"hallazgo {hid}: nonexistent endpoint {h['endpoint']}")
         if h.get("tabla") and h["tabla"] not in tablas:
-            err.append(f"hallazgo {hid}: tabla inexistente {h['tabla']}")
+            err.append(f"hallazgo {hid}: nonexistent tabla {h['tabla']}")
     for r in datos.get("llamadas_rotas", []):
         if r.get("hallazgo") and r["hallazgo"] not in hall_ids:
-            err.append(f"llamada rota {r.get('ruta')}: hallazgo inexistente {r['hallazgo']}")
+            err.append(f"llamada rota {r.get('ruta')}: nonexistent hallazgo {r['hallazgo']}")
     for archivo in datos.get("archivos", {}):
-        if repo.texto(archivo) is None:
-            err.append(f"archivos: no existe {archivo}")
+        if dentro_del_repo(repo.raiz, archivo) is None:
+            err.append(f"archivos: {archivo} is outside the repo")
+        elif repo.texto(archivo) is None:
+            err.append(f"archivos: {archivo} does not exist")
 
 
 def segmentos(ruta: str) -> list[str]:
@@ -248,7 +324,7 @@ def segmentos(ruta: str) -> list[str]:
 
 
 def mismo_endpoint(a: str, b: str) -> bool:
-    """Compara 'GET /api/x/{id}' con 'GET /x/{id}': mismo método y la ruta más corta es sufijo de la otra."""
+    """Compares 'GET /api/x/{id}' with 'GET /x/{id}': same method and the shorter route is a suffix of the other."""
     (ma, ra), (mb, rb) = a.split(" ", 1), b.split(" ", 1)
     sa, sb = segmentos(ra), segmentos(rb)
     corto, largo = (sa, sb) if len(sa) <= len(sb) else (sb, sa)
@@ -257,52 +333,75 @@ def mismo_endpoint(a: str, b: str) -> bool:
 
 def cobertura(datos: dict, esqueleto: Path, avisos: list[str]) -> None:
     if not esqueleto.exists():
-        avisos.append(f"No hay {esqueleto.name}: no puedo comparar la cobertura (corré extract.py)")
+        avisos.append(f"There is no {esqueleto.name}: cannot compare coverage (run atlify.py extract)")
         return
-    sk = json.loads(esqueleto.read_text(encoding="utf-8"))
-    del_sk = sorted({f"{e['metodo']} {e['ruta']}" for n in sk.get("nodos", []) for e in n.get("endpoints", [])})
+    try:
+        sk = json.loads(esqueleto.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        avisos.append(f"Could not read {esqueleto.name}: run atlify.py extract again")
+        return
+    nodos = sk.get("nodos", []) if isinstance(sk, dict) else []
+    del_sk = sorted({f"{e.get('metodo')} {e.get('ruta')}" for n in nodos if isinstance(n, dict)
+                     for e in n.get("endpoints", []) if isinstance(e, dict)})
     hechos = [ep_id(e) for e in datos.get("endpoints", [])]
     faltan = [x for x in del_sk if not any(mismo_endpoint(x, h) for h in hechos)]
     if faltan:
-        avisos.append(f"{len(faltan)} de {len(del_sk)} endpoints del esqueleto no están en atlas.json: " + ", ".join(faltan[:12])
+        avisos.append(f"{len(faltan)} of {len(del_sk)} skeleton endpoints are missing from atlas.json: " + ", ".join(faltan[:12])
                       + (" …" if len(faltan) > 12 else ""))
 
 
-def validar(repo_dir: Path, atlas: Path, solo_endpoint: str | None = None) -> tuple[dict | None, Repo]:
+def validar(repo_dir: Path, atlas: Path, solo_endpoint: str | None = None) -> tuple[dict | None, Repo, str | None]:
+    """Validates and returns (datos, repo, resolved endpoint). The --endpoint
+    argument may use the skeleton's form (without the /api prefix): it is
+    resolved by suffix, like everywhere else routes are compared."""
     repo = Repo(repo_dir.resolve())
     if not atlas.exists():
-        repo.errores.append(f"No existe {atlas}: escribilo siguiendo references/conventions.md")
-        return None, repo
+        repo.errores.append(f"There is no {atlas}: write it following references/conventions.md")
+        return None, repo, solo_endpoint
     try:
         datos = json.loads(atlas.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
-        repo.errores.append(f"{atlas}: JSON inválido en la línea {e.lineno}, columna {e.colno}: {e.msg}")
-        return None, repo
+        repo.errores.append(f"{atlas}: invalid JSON at line {e.lineno}, column {e.colno}: {e.msg}")
+        return None, repo, solo_endpoint
+    if not isinstance(datos, dict):
+        repo.errores.append("atlas.json: the root must be an object")
+        return None, repo, solo_endpoint
+    normalizar_forma(datos, repo.errores)
     revisar_claves(datos, repo.errores)
     for ref, ctx in recorrer_refs(datos):
         repo.resolver(ref, ctx)
+    if solo_endpoint:
+        eps_ids = {ep_id(e) for e in datos.get("endpoints", [])}
+        if solo_endpoint not in eps_ids:
+            parecidos = sorted(k for k in eps_ids if mismo_endpoint(k, solo_endpoint))
+            if len(parecidos) == 1:
+                solo_endpoint = parecidos[0]
+            elif parecidos:
+                repo.errores.append(f"--endpoint '{solo_endpoint}' is ambiguous; candidates: {', '.join(parecidos)}")
+            else:
+                repo.errores.append(f"--endpoint '{solo_endpoint}' is not in atlas.json")
     revisar_contenido(datos, repo, solo_endpoint)
     if not solo_endpoint:
         cobertura(datos, atlas.parent / "skeleton.json", repo.avisos)
-    return datos, repo
+    return datos, repo, solo_endpoint
 
 
 def informar(repo: Repo) -> None:
-    for titulo, lista in (("ERRORES", repo.errores), ("AVISOS", repo.avisos)):
+    for titulo, lista in (("ERRORS", repo.errores), ("WARNINGS", repo.avisos)):
         if lista:
             print(f"{titulo} ({len(lista)}):")
             for x in lista:
                 print(f"  - {x}")
-    print(f"{'OK' if not repo.errores else 'FALLA'}: {len(repo.errores)} errores, {len(repo.avisos)} avisos")
+    print(f"{'OK' if not repo.errores else 'FAIL'}: {len(repo.errores)} errors, {len(repo.avisos)} warnings")
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("repo", type=Path)
-    ap.add_argument("--atlas", type=Path, help="default: <repo>/.atlas/atlas.json")
-    ap.add_argument("--endpoint", help='valida el modo de un solo endpoint, p. ej. "GET /api/x"')
+    ap.add_argument("--atlas", type=Path, help="default: <repo>/.atlify/atlas.json")
+    ap.add_argument("--endpoint", help='validates single-endpoint mode, e.g. "GET /api/x"; matched by suffix')
     args = ap.parse_args()
-    _, repo = validar(args.repo, args.atlas or args.repo / ".atlas" / "atlas.json", args.endpoint)
+    _, repo, _ = validar(args.repo, args.atlas or args.repo / ".atlify" / "atlas.json", args.endpoint)
     informar(repo)
     sys.exit(1 if repo.errores else 0)
 

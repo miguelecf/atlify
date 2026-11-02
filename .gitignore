@@ -1,3 +1,9 @@
 .DS_Store
 __pycache__/
 .atlas/
+.atlify/
+evals/e2e/node_modules/
+evals/e2e/test-results/
+evals/e2e/playwright-report/
+
+evals/e2e/capturas/

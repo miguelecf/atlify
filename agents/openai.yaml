@@ -1,6 +1,6 @@
 interface:
-  display_name: "Atlas del código"
-  short_description: "Mapa interactivo de un repo: endpoints, recorridos y problemas"
-  default_prompt: "Usá $atlas-codigo para generar el atlas de este repositorio."
+  display_name: "Atlify"
+  short_description: "Interactive atlas of a repo: endpoints, walkthroughs and findings"
+  default_prompt: "Use $atlify to generate the atlas of this repository."
 policy:
   allow_implicit_invocation: false

@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Atlify — entendé el repo antes de tocarlo</title>
+    <meta
+      name="description"
+      content="Un skill para agentes de código que convierte un repo con API en un atlas interactivo: mapa, recorridos y hallazgos vinculados al código real. Un solo HTML, offline."
+    />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#183e32" />
+    <link rel="canonical" href="https://miguelecf.github.io/atlify/" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="es_AR" />
+    <meta property="og:site_name" content="Atlify" />
+    <meta property="og:url" content="https://miguelecf.github.io/atlify/" />
+    <meta
+      property="og:title"
+      content="Atlify — entendé el repo antes de tocarlo"
+    />
+    <meta
+      property="og:description"
+      content="De la pantalla a la tabla, con el código en el medio. Un skill para convertir repos con API en un atlas interactivo y offline."
+    />
+    <meta
+      property="og:image"
+      content="https://miguelecf.github.io/atlify/img/og-atlify.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Atlify. Entendé el repo antes de tocarlo. Pantalla, endpoint y tabla conectados en un atlas offline. Por Miguel Caraballo."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="Atlify — entendé el repo antes de tocarlo"
+    />
+    <meta
+      name="twitter:description"
+      content="El mapa, los recorridos y los hallazgos de tu repo. Un solo HTML, con referencias al código real."
+    />
+    <meta
+      name="twitter:image"
+      content="https://miguelecf.github.io/atlify/img/og-atlify.png"
+    />
+    <link
+      rel="preload"
+      href="fonts/archivo-black-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="site.js" defer></script>
+  </head>
+  <body id="inicio">
+    <a class="skip-link" href="#contenido">Saltar al contenido</a>
+    <header class="site-header">
+      <div class="wrap header-inner">
+        <a class="brand" href="#inicio" aria-label="Atlify, inicio"
+          ><img src="favicon.svg" width="32" height="32" alt="" /><span
+            >Atlify</span
+          ></a
+        >
+        <nav aria-label="Principal">
+          <a href="#explorar">El atlas</a
+          ><a href="#como-funciona">Cómo funciona</a
+          ><a href="#instalar">Instalar</a>
+          <a class="nav-repo" href="https://github.com/miguelecf/atlify"
+            >GitHub <span aria-hidden="true">↗</span></a
+          >
+        </nav>
+      </div>
+    </header>
+    <main id="contenido">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="wrap">
+          <div class="hero-top">
+            <p>Un skill para agentes de código</p>
+            <p>
+              Por <a href="https://miguelecf.github.io/">Miguel Caraballo</a>
+            </p>
+          </div>
+          <div class="hero-grid">
+            <div>
+              <h1 id="hero-title">Entendé el repo.<br />Antes de tocarlo.</h1>
+              <p class="hero-lead">
+                De la pantalla a la tabla, con el código en el medio. Atlify
+                convierte un repo con API en un atlas que podés recorrer,
+                estudiar y llevarte.
+              </p>
+              <div class="actions">
+                <a class="btn btn--light" href="demo/atlas.html"
+                  >Explorar la demo</a
+                ><a class="hero-install" href="#instalar"
+                  >Instalar el skill <span aria-hidden="true">↗</span></a
+                >
+              </div>
+            </div>
+            <div
+              class="route-sheet"
+              aria-label="Ejemplo de recorrido del repo pet-care-api"
+            >
+              <div class="sheet-head">
+                <span>Un pedido. Todo su recorrido.</span
+                ><span aria-hidden="true">↙</span>
+              </div>
+              <ol class="route-list">
+                <li>
+                  <span class="route-node" aria-hidden="true">01</span>
+                  <div>
+                    <span class="route-layer">Pantalla</span
+                    ><strong>AppointmentsPage.tsx</strong
+                    ><span>La persona consulta sus turnos.</span>
+                  </div>
+                </li>
+                <li>
+                  <span class="route-node" aria-hidden="true">02</span>
+                  <div>
+                    <span class="route-layer">Endpoint</span
+                    ><strong>GET /api/appointments</strong
+                    ><span>La petición atraviesa el backend.</span>
+                  </div>
+                </li>
+                <li>
+                  <span class="route-node" aria-hidden="true">03</span>
+                  <div>
+                    <span class="route-layer">Base de datos</span
+                    ><strong>appointments</strong
+                    ><span>El recorrido llega a la tabla.</span>
+                  </div>
+                </li>
+              </ol>
+              <p class="sheet-foot">
+                Ejemplo incluido en la demo <span aria-hidden="true">↗</span>
+              </p>
+            </div>
+          </div>
+          <div class="hero-bottom">
+            <span>Un HTML que funciona offline</span
+            ><span>Python, sin paquetes extra</span
+            ><span>Código abierto · MIT</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="agent-strip">
+        <div class="wrap">
+          <p>Usalo con tu agente.</p>
+          <p>
+            Codex <span>/</span> Claude Code <span>/</span> Pi
+            <span>/</span> OpenCode <span>/</span> Gemini CLI
+          </p>
+        </div>
+      </div>
+
+      <section class="section" id="explorar" aria-labelledby="explorar-title">
+        <div class="wrap">
+          <div class="section-head split-head">
+            <div>
+              <p class="section-kicker">El resultado, no la promesa</p>
+              <h2 id="explorar-title">
+                El repo deja<br />de ser una caja negra.
+              </h2>
+            </div>
+            <p>
+              Un mapa para ubicarte. Un recorrido para entender. Hallazgos para
+              saber qué revisar. Estas son vistas reales del atlas de
+              <strong>pet-care-api</strong>, un repo de prueba con errores
+              intencionales.
+            </p>
+          </div>
+          <div
+            class="explorer-controls"
+            role="group"
+            aria-label="Vistas del atlas"
+            hidden
+          >
+            <button
+              type="button"
+              data-view="recorrido"
+              aria-pressed="true"
+              aria-controls="atlas-preview"
+            >
+              Recorrido
+            </button>
+            <button
+              type="button"
+              data-view="mapa"
+              aria-pressed="false"
+              aria-controls="atlas-preview"
+            >
+              Mapa
+            </button>
+            <button
+              type="button"
+              data-view="hallazgos"
+              aria-pressed="false"
+              aria-controls="atlas-preview"
+            >
+              Hallazgos
+            </button>
+            <button
+              type="button"
+              data-view="foco"
+              aria-pressed="false"
+              aria-controls="atlas-preview"
+            >
+              Antes de tocarlo
+            </button>
+          </div>
+          <figure class="atlas-preview" id="atlas-preview">
+            <div class="preview-bar">
+              <span
+                ><span class="file-dot" aria-hidden="true"></span
+                ><span id="preview-file">atlas.html</span></span
+              ><a
+                id="preview-link"
+                href="demo/atlas.html#/endpoint/GET%20%2Fapi%2Fappointments/recorrido?paso=3"
+                >Abrir esta vista <span aria-hidden="true">↗</span></a
+              >
+            </div>
+            <img
+              id="preview-image"
+              src="img/recorrido.png"
+              width="1280"
+              height="1040"
+              alt="Recorrido de GET /api/appointments: pasos entre frontend, backend y tabla con el código real."
+              loading="lazy"
+            />
+            <figcaption aria-live="polite">
+              <strong id="preview-title"
+                >Seguí el pedido, no veinte pestañas.</strong
+              ><span id="preview-description"
+                >Cada paso muestra qué hace, dónde vive y qué código lo
+                resuelve. Las preguntas te ayudan a leer con criterio.</span
+              >
+            </figcaption>
+          </figure>
+          <div class="demo-foot">
+            <p>La demo ya está generada. No sube ni analiza tu repositorio.</p>
+            <a href="demo/atlas.html" download="atlify-demo.html"
+              >Descargar el HTML de ejemplo</a
+            >
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="section section--gray"
+        id="modos"
+        aria-labelledby="modos-title"
+      >
+        <div class="wrap use-cases">
+          <div>
+            <p class="section-kicker">Elegí por dónde entrar</p>
+            <h2 id="modos-title">
+              No todos los cambios<br />necesitan el atlas entero.
+            </h2>
+            <p class="section-intro">
+              Si heredaste el repo, mirá el sistema. Si el cambio es chico,
+              enfocá el endpoint. Si lo armaste con IA, volvé sobre lo que
+              quedó.
+            </p>
+          </div>
+          <div class="mode-list">
+            <article>
+              <div class="mode-heading">
+                <h3>Entender el sistema</h3>
+                <span>Completo</span>
+              </div>
+              <p>
+                Frontend, backend, tablas y recorridos. En repos grandes, se
+                trabaja por funcionalidad, no todo de una.
+              </p>
+              <code>$atlify</code>
+            </article>
+            <article>
+              <div class="mode-heading">
+                <h3>Preparar un cambio</h3>
+                <span>Por endpoint</span>
+              </div>
+              <p>
+                El recorrido, las funciones compartidas, las tablas y las
+                referencias a tests. Un mapa de impacto, no una garantía de que
+                nada se rompe.
+              </p>
+              <code>$atlify --endpoint "GET /api/appointments"</code
+              ><a href="demo/foco.html">Explorar el modo «Antes de tocarlo»</a>
+            </article>
+            <article>
+              <div class="mode-heading">
+                <h3>Volver después de un cambio</h3>
+                <span>Actualizar</span>
+              </div>
+              <p>
+                Repite la extracción, enumera diferencias y guía al agente para
+                revisar el atlas existente.
+              </p>
+              <code>$atlify --actualizar</code>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="como-funciona" aria-labelledby="como-title">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="section-kicker">La idea detrás del skill</p>
+            <h2 id="como-title">
+              Scripts para lo mecánico.<br />Criterio para lo importante.
+            </h2>
+            <p>
+              Atlify no es otro agente ni un servicio al que subís el repo. Es
+              un método que tu agente sigue, con scripts que extraen y verifican
+              las referencias.
+            </p>
+          </div>
+          <ol class="steps">
+            <li>
+              <span class="step-num" aria-hidden="true">01</span>
+              <h3>Extraer</h3>
+              <p>
+                Python detecta rutas, llamadas del frontend, tablas y
+                relaciones. Produce un inventario y marca inconsistencias para
+                revisar.
+              </p>
+              <code>extract → skeleton.json</code>
+            </li>
+            <li>
+              <span class="step-num" aria-hidden="true">02</span>
+              <h3>Leer y explicar</h3>
+              <p>
+                Tu agente sigue el código, explica cada recorrido y documenta
+                hallazgos con archivo, símbolo, escenario y arreglo mínimo.
+              </p>
+              <code>agente → atlas.json</code>
+            </li>
+            <li>
+              <span class="step-num" aria-hidden="true">03</span>
+              <h3>Validar y construir</h3>
+              <p>
+                Los scripts comprueban las referencias y empaquetan el visor con
+                el código y las fuentes. Si la validación falla, el build se
+                detiene.
+              </p>
+              <code>validate + build → atlas.html</code>
+            </li>
+          </ol>
+          <div class="boundary">
+            <strong
+              >Una referencia válida no convierte una explicación en
+              verdad.</strong
+            >
+            <p>
+              El agente puede equivocarse. Atlify ayuda a contrastar lo que dice
+              con el código; no reemplaza una revisión de seguridad ni ejecutar
+              los tests.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="section section--gray"
+        id="instalar"
+        aria-labelledby="instalar-title"
+      >
+        <div class="wrap install-grid">
+          <div>
+            <p class="section-kicker">De tu agente a tu repo</p>
+            <h2 id="instalar-title">
+              Instalalo.<br />Elegí un endpoint.<br />Empezá por ahí.
+            </h2>
+            <p class="section-intro">
+              Necesitás Git, Python 3.10+ y un agente que lea skills y pueda
+              ejecutar comandos. Los scripts usan solo la biblioteca estándar de
+              Python.
+            </p>
+            <p class="small-note">
+              Instalador para macOS y Linux; en Windows, usá WSL. El uso de tu
+              agente puede tener su propio costo.
+            </p>
+            <a href="https://github.com/miguelecf/atlify/blob/main/README.md"
+              >Documentación completa</a
+            >
+          </div>
+          <div class="install-steps">
+            <div class="install-step">
+              <h3><span>1</span> En tu terminal</h3>
+              <p>
+                Cloná el skill y enlazalo a las carpetas de agentes existentes.
+              </p>
+              <div class="code-block">
+                <div class="code-head">
+                  <span>Instalación</span
+                  ><button
+                    type="button"
+                    class="copy-btn"
+                    data-copy="code-install"
+                    aria-label="Copiar los comandos de instalación"
+                    hidden
+                  >
+                    Copiar
+                  </button>
+                </div>
+                <pre
+                  id="code-install"
+                ><code>git clone https://github.com/miguelecf/atlify.git
+cd atlify
+./install.sh
+python3 scripts/atlify.py doctor</code></pre>
+                <p class="copy-status" role="status" data-status></p>
+              </div>
+              <details class="install-options">
+                <summary>
+                  Instalar solo en algunos agentes o desinstalar
+                </summary>
+                <p>
+                  <code>./install.sh --only claude,codex</code> limita los
+                  destinos. Si falta una carpeta de skills, el instalador la
+                  omite; creala primero y volvé a correrlo.
+                </p>
+                <p>
+                  <code>./install.sh --copy</code> copia en vez de enlazar.
+                  <code>./install.sh --uninstall</code> quita lo que reconoce
+                  como instalación propia.
+                </p>
+              </details>
+            </div>
+            <div class="install-step">
+              <h3><span>2</span> En el chat de tu agente</h3>
+              <p>Abrí el repo que querés entender y pedile el atlas.</p>
+              <fieldset class="agent-picker" hidden>
+                <legend>¿Qué agente usás?</legend>
+                <label
+                  ><input type="radio" name="agent" value="codex" checked />
+                  Codex</label
+                ><label
+                  ><input type="radio" name="agent" value="claude" /> Claude
+                  Code</label
+                ><label
+                  ><input type="radio" name="agent" value="other" /> Otro
+                  agente</label
+                >
+              </fieldset>
+              <div class="code-block">
+                <div class="code-head">
+                  <span id="usage-label">Mensaje para Codex</span
+                  ><button
+                    type="button"
+                    class="copy-btn"
+                    data-copy="code-usage"
+                    aria-label="Copiar el mensaje para tu agente"
+                    hidden
+                  >
+                    Copiar
+                  </button>
+                </div>
+                <pre id="code-usage"><code>$atlify</code></pre>
+                <p class="copy-status" role="status" data-status></p>
+              </div>
+              <noscript
+                ><p>
+                  En Claude Code, escribí <code>/atlify</code>. En otros
+                  agentes: «Usá atlify para generar el atlas de este repo».
+                </p></noscript
+              >
+            </div>
+            <div class="install-result">
+              <strong>El resultado queda en <code>.atlify/</code></strong>
+              <p>
+                <code>atlas.json</code> es la fuente; <code>atlas.html</code>,
+                el visor que abrís en el navegador. Si hay hallazgos, podés
+                pedir un plan de arreglo en Markdown.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="preguntas" aria-labelledby="faq-title">
+        <div class="wrap faq-grid">
+          <div>
+            <p class="section-kicker">Antes de usarlo</p>
+            <h2 id="faq-title">Lo que hace.<br />Y lo que no.</h2>
+            <p class="section-intro">
+              Un buen mapa también muestra sus límites.
+            </p>
+          </div>
+          <div class="faq-list">
+            <details>
+              <summary>¿Con qué repos funciona?</summary>
+              <p>
+                Está pensado para repos con API HTTP. El extractor tiene
+                heurísticas para FastAPI, Spring y JS/TS/React. En otros stacks,
+                el agente completa lo que falta siguiendo las referencias del
+                skill. No es un parser universal.
+              </p>
+              <p>
+                Para bibliotecas, CLIs o scripts sin endpoints, el atlas
+                completo no es el formato adecuado.
+              </p>
+            </details>
+            <details>
+              <summary>¿Modifica o ejecuta mi aplicación?</summary>
+              <p>
+                El contrato del skill limita las escrituras a
+                <code>.atlify/</code>. No inicia tu aplicación, no corre tus
+                tests y no aplica arreglos. Ejecuta sus propios scripts para
+                leer, validar y construir el atlas.
+              </p>
+              <p>
+                Como cualquier skill, depende de que el agente respete sus
+                instrucciones: no es un sandbox.
+              </p>
+            </details>
+            <details>
+              <summary>¿Mi código sale de mi computadora?</summary>
+              <p>
+                El visor generado funciona offline y no necesita servicios
+                externos. Pero el análisis lo hace tu agente: si usa un modelo
+                en la nube, el código que lee puede enviarse a ese proveedor
+                según su configuración. Offline describe el HTML, no
+                necesariamente el análisis.
+              </p>
+            </details>
+            <details>
+              <summary>¿Puedo compartir el HTML generado?</summary>
+              <p>
+                Sí, si tenés permiso para compartir el código que contiene. El
+                HTML incluye el contenido de los archivos de código
+                referenciados, no solo las citas visibles. Revisalo antes de
+                publicarlo.
+              </p>
+              <p>
+                El validador bloquea rutas fuera del repo y archivos sensibles
+                reconocidos, como <code>.env</code>. Eso no detecta todos los
+                secretos que alguien pudo dejar dentro de un archivo permitido.
+              </p>
+            </details>
+            <details>
+              <summary>
+                ¿Qué tan completos son los hallazgos y el impacto?
+              </summary>
+              <p>
+                El agente interpreta el código; los scripts validan referencias.
+                Ninguno garantiza encontrar todos los errores. Las llamadas
+                dinámicas, la reflexión y algunas relaciones pueden quedar fuera
+                del cálculo de impacto.
+              </p>
+              <p>
+                Los tests que aparecen son referencias descubiertas, no tests
+                ejecutados ni una medición de cobertura.
+              </p>
+            </details>
+            <details>
+              <summary>¿Cómo se prueba Atlify?</summary>
+              <p>
+                Con tests de los scripts, pruebas de navegador del visor y esta
+                landing, y un repo de ejemplo con 11 hallazgos documentados
+                sobre errores intencionales. Los casos de comportamiento del
+                agente se evalúan por separado: los tests deterministas no
+                prueban que todos los modelos encuentren todo.
+              </p>
+              <a href="https://github.com/miguelecf/atlify/tree/main/evals"
+                >Ver las pruebas y los casos</a
+              >
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section class="section closing" aria-labelledby="closing-title">
+        <div class="wrap closing-grid">
+          <div>
+            <p>Un proyecto de Miguel Caraballo</p>
+            <h2 id="closing-title">
+              Menos archivos sueltos.<br />Más contexto para decidir.
+            </h2>
+            <p>
+              Explorá un atlas antes de generar el tuyo. Y si te interesa cómo
+              se construye un skill, el repo incluye un recorrido por sus
+              decisiones y su implementación.
+            </p>
+          </div>
+          <div class="closing-actions">
+            <a class="btn btn--light" href="demo/atlas.html">Explorar la demo</a
+            ><a href="https://github.com/miguelecf/atlify/blob/main/ESTUDIAR.md"
+              >Leer cómo está hecho</a
+            >
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="site-footer">
+      <div class="wrap">
+        <a class="brand" href="#inicio"
+          ><img src="favicon.svg" width="28" height="28" alt="" /><span
+            >Atlify</span
+          ></a
+        >
+        <p>
+          Hecho por <a href="https://miguelecf.github.io/">Miguel Caraballo</a>.
+          Código abierto, licencia MIT.
+        </p>
+        <a href="https://github.com/miguelecf/atlify">GitHub</a
+        ><a href="#inicio">Volver arriba</a>
+      </div>
+    </footer>
+  </body>
+</html>

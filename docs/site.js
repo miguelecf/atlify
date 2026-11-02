@@ -36,21 +36,93 @@
   };
   const controls = document.querySelector(".explorer-controls");
   controls.hidden = false;
-  controls.addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-view]");
-    if (!button) return;
-    const view = views[button.dataset.view];
+  function showView(key) {
+    const view = views[key];
     for (const item of controls.querySelectorAll("button"))
-      item.setAttribute("aria-pressed", String(item === button));
+      item.setAttribute("aria-pressed", String(item.dataset.view === key));
     const img = document.getElementById("preview-image");
-    img.src = `img/${button.dataset.view}.png`;
+    img.src = `img/${key}.png`;
     img.alt = view.alt;
     document.getElementById("preview-title").textContent = view.title;
     document.getElementById("preview-description").textContent =
       view.description;
     document.getElementById("preview-file").textContent = view.file;
     document.getElementById("preview-link").href = view.href;
+  }
+  controls.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-view]");
+    if (button) showView(button.dataset.view);
   });
+
+  // One pinned product story, not a fake scrollbar or a wheel interceptor.
+  if (window.gsap && window.ScrollTrigger) {
+    gsap.registerPlugin(ScrollTrigger);
+    const media = gsap.matchMedia();
+    media.add(
+      "(min-width: 1024px) and (min-height: 760px) and (prefers-reduced-motion: no-preference)",
+      () => {
+        // Enlarged text needs natural document flow, not a viewport-sized stage.
+        if (
+          parseFloat(getComputedStyle(document.documentElement).fontSize) > 20
+        )
+          return;
+        const section = document.getElementById("explorar");
+        const stage = section.querySelector(".scroll-stage");
+        section.classList.add("scroll-story");
+        const keys = Object.keys(views);
+        let phase = -1;
+        keys.forEach((key) => {
+          const image = new Image();
+          image.src = `img/${key}.png`;
+        });
+        ScrollTrigger.create({
+          trigger: section,
+          pin: stage,
+          start: "top top",
+          end: () => "+=" + innerHeight * 2.4,
+          invalidateOnRefresh: true,
+          anticipatePin: 1,
+          onUpdate(self) {
+            stage.style.setProperty("--story-progress", self.progress);
+            const next = Math.min(3, Math.floor(self.progress * 4));
+            if (next !== phase) {
+              phase = next;
+              showView(keys[next]);
+              gsap.fromTo(
+                "#preview-image",
+                { opacity: 0.5, y: 12 },
+                { opacity: 1, y: 0, duration: 0.45, overwrite: true },
+              );
+            }
+          },
+        });
+        gsap.to(".hero-grid", {
+          y: -32,
+          opacity: 0.65,
+          ease: "none",
+          scrollTrigger: {
+            trigger: ".hero",
+            start: "top top",
+            end: "bottom top",
+            scrub: 0.6,
+          },
+        });
+        document.fonts.ready.then(() => ScrollTrigger.refresh());
+        return () => {
+          section.classList.remove("scroll-story");
+          stage.style.removeProperty("--story-progress");
+          showView("recorrido");
+        };
+      },
+    );
+    new MutationObserver(() => {
+      if (parseFloat(getComputedStyle(document.documentElement).fontSize) > 20)
+        media.revert();
+    }).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["style"],
+    });
+  }
 
   const picker = document.querySelector(".agent-picker");
   picker.hidden = false;

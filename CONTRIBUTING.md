@@ -84,3 +84,11 @@ Agregá un caso mínimo para cada bug. No incluyas repos privados, credenciales 
 capturas de clientes. Conservá los nombres del esquema (`naciones`, `hallazgos`, etc.)
 y el contrato de escrituras en `.atlify/`. No mezcles un arreglo del extractor con
 un rediseño del visor. Si cambia una capacidad, actualizá la landing y ambos README.
+
+### Scroll narrativo de la landing
+
+`docs/site.js` usa GSAP/ScrollTrigger 3.15.0 locales para fijar la escena del atlas
+mientras cambian sus cuatro vistas. No intercepta rueda/touch ni reemplaza el scroll
+nativo. Móvil, pantallas bajas, texto ampliado, movimiento reducido y ausencia de
+JS conservan el flujo normal. La prueba ScrollTrigger verifica pin, fases y teardown.
+La licencia de GSAP es independiente de MIT; ver `docs/vendor/gsap/NOTICE.txt`.

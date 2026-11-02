@@ -24,3 +24,5 @@ Third-party components:
 - assets/vendor/htm-preact-3.1.1.umd.js: htm and Preact, MIT License.
 - assets/vendor/fonts/: Archivo and Archivo Black, SIL Open Font License 1.1
   (see the OFL-*.txt files in that folder).
+- docs/vendor/gsap/: GSAP and ScrollTrigger 3.15.0, GSAP Standard License
+  (not MIT; see docs/vendor/gsap/NOTICE.txt and https://gsap.com/standard-license/).

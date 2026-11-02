@@ -27,3 +27,10 @@ Publicación inicial en GitHub. La versión del skill es 1.1.0; no se crea un ta
 - Instalador multiagente con enlaces o copias y desinstalación propia.
 
 Los hallazgos del agente y su rendimiento no se infieren de los tests de scripts.
+
+### Experiencia de scroll
+
+- Escena del atlas fijada en escritorio con GSAP ScrollTrigger, cuatro capítulos
+  vinculados al avance y transiciones suaves, sin scroll-jacking.
+- Entrada/salida más continua y separadores menos marcados, conservando la marca.
+- Flujo nativo en móvil y movimiento reducido, con librerías alojadas localmente.

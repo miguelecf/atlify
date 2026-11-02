@@ -241,3 +241,47 @@ test("La demo descargada funciona sin red, con fuentes y código embebidos", asy
   );
   await context.close();
 });
+
+test("ScrollTrigger fija la escena y cambia las cuatro vistas sin secuestrar el scroll", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "escritorio",
+    "Escena cinematográfica solo en pantallas amplias",
+  );
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(LANDING);
+  await expect(page.locator("#explorar")).toHaveClass(/scroll-story/);
+  for (const [index, key] of [
+    "recorrido",
+    "mapa",
+    "hallazgos",
+    "foco",
+  ].entries()) {
+    await page.evaluate((i) => {
+      const trigger = (window as any).ScrollTrigger.getAll().find(
+        (t: any) => t.trigger.id === "explorar",
+      );
+      window.scrollTo({
+        top: trigger.start + ((i + 0.25) / 4) * (trigger.end - trigger.start),
+        behavior: "instant",
+      });
+    }, index);
+    await expect(page.locator(`button[data-view="${key}"]`)).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    const top = await page
+      .locator(".scroll-stage")
+      .evaluate((el) => el.getBoundingClientRect().top);
+    expect(Math.abs(top)).toBeLessThan(3);
+    if (index === 1)
+      await page.screenshot({ path: testInfo.outputPath("scroll-story.png") });
+  }
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(page.locator("#explorar")).not.toHaveClass(/scroll-story/);
+  await expect(page.locator("#preview-image")).toHaveAttribute(
+    "src",
+    "img/recorrido.png",
+  );
+});

@@ -55,6 +55,8 @@
       crossorigin
     />
     <link rel="stylesheet" href="styles.css" />
+    <script src="vendor/gsap/gsap.min.js" defer></script>
+    <script src="vendor/gsap/ScrollTrigger.min.js" defer></script>
     <script src="site.js" defer></script>
   </head>
   <body id="inicio">
@@ -160,92 +162,96 @@
 
       <section class="section" id="explorar" aria-labelledby="explorar-title">
         <div class="wrap">
-          <div class="section-head split-head">
-            <div>
-              <p class="section-kicker">El resultado, no la promesa</p>
-              <h2 id="explorar-title">
-                El repo deja<br />de ser una caja negra.
-              </h2>
+          <div class="scroll-stage">
+            <div class="section-head split-head">
+              <div>
+                <p class="section-kicker">El resultado, no la promesa</p>
+                <h2 id="explorar-title">
+                  El repo deja<br />de ser una caja negra.
+                </h2>
+              </div>
+              <p>
+                Un mapa para ubicarte. Un recorrido para entender. Hallazgos
+                para saber qué revisar. Estas son vistas reales del atlas de
+                <strong>pet-care-api</strong>, un repo de prueba con errores
+                intencionales.
+              </p>
             </div>
-            <p>
-              Un mapa para ubicarte. Un recorrido para entender. Hallazgos para
-              saber qué revisar. Estas son vistas reales del atlas de
-              <strong>pet-care-api</strong>, un repo de prueba con errores
-              intencionales.
-            </p>
-          </div>
-          <div
-            class="explorer-controls"
-            role="group"
-            aria-label="Vistas del atlas"
-            hidden
-          >
-            <button
-              type="button"
-              data-view="recorrido"
-              aria-pressed="true"
-              aria-controls="atlas-preview"
+            <div
+              class="explorer-controls"
+              role="group"
+              aria-label="Vistas del atlas"
+              hidden
             >
-              Recorrido
-            </button>
-            <button
-              type="button"
-              data-view="mapa"
-              aria-pressed="false"
-              aria-controls="atlas-preview"
-            >
-              Mapa
-            </button>
-            <button
-              type="button"
-              data-view="hallazgos"
-              aria-pressed="false"
-              aria-controls="atlas-preview"
-            >
-              Hallazgos
-            </button>
-            <button
-              type="button"
-              data-view="foco"
-              aria-pressed="false"
-              aria-controls="atlas-preview"
-            >
-              Antes de tocarlo
-            </button>
-          </div>
-          <figure class="atlas-preview" id="atlas-preview">
-            <div class="preview-bar">
-              <span
-                ><span class="file-dot" aria-hidden="true"></span
-                ><span id="preview-file">atlas.html</span></span
-              ><a
-                id="preview-link"
-                href="demo/atlas.html#/endpoint/GET%20%2Fapi%2Fappointments/recorrido?paso=3"
-                >Abrir esta vista <span aria-hidden="true">↗</span></a
+              <button
+                type="button"
+                data-view="recorrido"
+                aria-pressed="true"
+                aria-controls="atlas-preview"
+              >
+                Recorrido
+              </button>
+              <button
+                type="button"
+                data-view="mapa"
+                aria-pressed="false"
+                aria-controls="atlas-preview"
+              >
+                Mapa
+              </button>
+              <button
+                type="button"
+                data-view="hallazgos"
+                aria-pressed="false"
+                aria-controls="atlas-preview"
+              >
+                Hallazgos
+              </button>
+              <button
+                type="button"
+                data-view="foco"
+                aria-pressed="false"
+                aria-controls="atlas-preview"
+              >
+                Antes de tocarlo
+              </button>
+            </div>
+            <figure class="atlas-preview" id="atlas-preview">
+              <div class="preview-bar">
+                <span
+                  ><span class="file-dot" aria-hidden="true"></span
+                  ><span id="preview-file">atlas.html</span></span
+                ><a
+                  id="preview-link"
+                  href="demo/atlas.html#/endpoint/GET%20%2Fapi%2Fappointments/recorrido?paso=3"
+                  >Abrir esta vista <span aria-hidden="true">↗</span></a
+                >
+              </div>
+              <img
+                id="preview-image"
+                src="img/recorrido.png"
+                width="1280"
+                height="1040"
+                alt="Recorrido de GET /api/appointments: pasos entre frontend, backend y tabla con el código real."
+                loading="lazy"
+              />
+              <figcaption aria-live="polite">
+                <strong id="preview-title"
+                  >Seguí el pedido, no veinte pestañas.</strong
+                ><span id="preview-description"
+                  >Cada paso muestra qué hace, dónde vive y qué código lo
+                  resuelve. Las preguntas te ayudan a leer con criterio.</span
+                >
+              </figcaption>
+            </figure>
+            <div class="demo-foot">
+              <p>
+                La demo ya está generada. No sube ni analiza tu repositorio.
+              </p>
+              <a href="demo/atlas.html" download="atlify-demo.html"
+                >Descargar el HTML de ejemplo</a
               >
             </div>
-            <img
-              id="preview-image"
-              src="img/recorrido.png"
-              width="1280"
-              height="1040"
-              alt="Recorrido de GET /api/appointments: pasos entre frontend, backend y tabla con el código real."
-              loading="lazy"
-            />
-            <figcaption aria-live="polite">
-              <strong id="preview-title"
-                >Seguí el pedido, no veinte pestañas.</strong
-              ><span id="preview-description"
-                >Cada paso muestra qué hace, dónde vive y qué código lo
-                resuelve. Las preguntas te ayudan a leer con criterio.</span
-              >
-            </figcaption>
-          </figure>
-          <div class="demo-foot">
-            <p>La demo ya está generada. No sube ni analiza tu repositorio.</p>
-            <a href="demo/atlas.html" download="atlify-demo.html"
-              >Descargar el HTML de ejemplo</a
-            >
           </div>
         </div>
       </section>
